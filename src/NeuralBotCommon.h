@@ -70,6 +70,8 @@ struct NeuralBotReward
     float questCompleted = 0.0f;
     float questProximity = 0.0f;
     float questProgress = 0.0f;
+    float enemyProximity = 0.0f;
+    float targetAcquired = 0.0f;
     float timePenalty = -0.001f;
     float total = 0.0f;
 };

@@ -202,7 +202,7 @@ void NeuralBotInstance::BuildObservationInto(NeuralBotObservation& obs)
     std::vector<std::pair<Unit*, float>> nearbyUnits;
     if (bot->IsInWorld())
     {
-        float range = 40.0f;
+        float range = 60.0f;
         std::list<Unit*> targets;
         Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, range);
         Acore::UnitListSearcher<decltype(check)> searcher(bot, targets, check);
@@ -214,7 +214,11 @@ void NeuralBotInstance::BuildObservationInto(NeuralBotObservation& obs)
 
         std::sort(nearbyUnits.begin(), nearbyUnits.end(),
             [](auto const& a, auto const& b) { return a.second < b.second; });
+
+        _cachedNearestEnemyDist = nearbyUnits.empty() ? 0.0f : nearbyUnits[0].second;
     }
+    else
+        _cachedNearestEnemyDist = 0.0f;
 
     for (size_t i = 0; i < OBS_NEARBY_UNITS_COUNT; ++i)
     {
@@ -425,18 +429,18 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
         if (_cachedNearestQGDist > 0.0f)
         {
             if (_cachedNearestQGDist < 5.0f)
-                questProximityReward = 0.5f * (1.0f - _cachedNearestQGDist / 5.0f);
+                questProximityReward = 0.05f * (1.0f - _cachedNearestQGDist / 5.0f);
             else if (_cachedNearestQGDist < 10.0f)
-                questProximityReward = 0.25f;
+                questProximityReward = 0.025f;
             else if (_cachedNearestQGDist < 20.0f)
-                questProximityReward = 0.1f;
+                questProximityReward = 0.01f;
             else
-                questProximityReward = 0.05f;
+                questProximityReward = 0.005f;
 
             if (_prevQGDist > 0.0f && _cachedNearestQGDist < _prevQGDist)
             {
                 float pct = (_prevQGDist - _cachedNearestQGDist) / _prevQGDist;
-                questProximityReward += std::min(pct * 0.05f, 0.1f);
+                questProximityReward += std::min(pct * 0.005f, 0.01f);
             }
             reward += questProximityReward;
             _prevQGDist = _cachedNearestQGDist;
@@ -451,6 +455,46 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     out.questCompleted = questCompletedReward;
     out.questProgress = questProgressReward;
     out.questProximity = questProximityReward;
+
+    // Enemy proximity reward — primary gradient to pull bots toward mobs
+    float enemyProximityReward = 0.0f;
+    if (_cachedNearestEnemyDist > 0.0f)
+    {
+        if (_cachedNearestEnemyDist < 5.0f)
+            enemyProximityReward = 0.5f * (1.0f - _cachedNearestEnemyDist / 5.0f);
+        else if (_cachedNearestEnemyDist < 10.0f)
+            enemyProximityReward = 0.25f;
+        else if (_cachedNearestEnemyDist < 20.0f)
+            enemyProximityReward = 0.1f;
+        else
+            enemyProximityReward = 0.05f;
+
+        if (_prevEnemyDist > 0.0f && _cachedNearestEnemyDist < _prevEnemyDist)
+        {
+            float pct = (_prevEnemyDist - _cachedNearestEnemyDist) / _prevEnemyDist;
+            enemyProximityReward += std::min(pct * 0.05f, 0.1f);
+        }
+        reward += enemyProximityReward;
+        _prevEnemyDist = _cachedNearestEnemyDist;
+    }
+    out.enemyProximity = enemyProximityReward;
+
+    // Target-acquisition reward — nudge agent to use TARGET_NEAREST_ENEMY
+    float targetAcquiredReward = 0.0f;
+    {
+        Unit* target = bot->GetSelectedUnit();
+        ObjectGuid curTarget = target ? target->GetGUID() : ObjectGuid::Empty;
+        if (!curTarget.IsEmpty() && curTarget != _prevTargetGuid)
+        {
+            if (target->ToCreature() && !target->IsFriendlyTo(bot))
+            {
+                targetAcquiredReward = 0.5f;
+                reward += targetAcquiredReward;
+            }
+        }
+        _prevTargetGuid = curTarget;
+    }
+    out.targetAcquired = targetAcquiredReward;
 
     float timePenalty = 0.001f;
     reward -= timePenalty;
@@ -480,6 +524,9 @@ void NeuralBotInstance::ResetRewardTracking()
     _prevObjectiveCounts.clear();
     _cachedNearestQGDist = 0.0f;
     _prevQGDist = 0.0f;
+    _cachedNearestEnemyDist = 0.0f;
+    _prevEnemyDist = 0.0f;
+    _prevTargetGuid = ObjectGuid::Empty;
     _questAutoCompleted = 0;
     _stepsWithoutReward = 0;
 }

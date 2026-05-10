@@ -120,6 +120,7 @@ std::string NeuralBotWSHandler::ProcessMessage(const std::string& msg)
            << " " << r.deathPenalty << " " << r.lootReward
            << " " << r.questAccepted << " " << r.questCompleted
            << " " << r.questProximity << " " << r.questProgress
+           << " " << r.enemyProximity << " " << r.targetAcquired
            << " " << r.timePenalty;
 
         return os.str();

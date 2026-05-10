@@ -22,6 +22,12 @@ class EpisodeStatsCallback(BaseCallback):
         self.current_actions = np.zeros(ACTION_COUNT, dtype=np.int32)
         self._ep_rewards = [0.0] * NUM_BOTS
         self._ep_lengths = [0] * NUM_BOTS
+        # Cumulative reward components per episode
+        self._ep_xp = [0.0] * NUM_BOTS
+        self._ep_kill = [0.0] * NUM_BOTS
+        self._ep_enemy_prox = [0.0] * NUM_BOTS
+        self._ep_target_acq = [0.0] * NUM_BOTS
+        self._ep_quest_prox = [0.0] * NUM_BOTS
 
     def _on_step(self) -> bool:
         dones = self.locals.get("dones", [])
@@ -35,21 +41,26 @@ class EpisodeStatsCallback(BaseCallback):
             if i < len(rewards):
                 self._ep_rewards[i] += float(rewards[i])
                 self._ep_lengths[i] += 1
+            if i < len(infos):
+                rc = infos[i].get("reward_components", {})
+                self._ep_xp[i] += rc.get("xp", 0.0)
+                self._ep_kill[i] += rc.get("kill", 0.0)
+                self._ep_enemy_prox[i] += rc.get("enemy_proximity", 0.0)
+                self._ep_target_acq[i] += rc.get("target_acquired", 0.0)
+                self._ep_quest_prox[i] += rc.get("quest_proximity", 0.0)
 
             if dones[i] and i < len(infos):
-                rc = infos[i].get("reward_components", {})
-
                 row = {
                     "episode": self.episode_num,
                     "reward": round(self._ep_rewards[i], 4),
                     "length": self._ep_lengths[i],
-                    "xp": round(rc.get("xp", 0.0), 4),
-                    "kill": round(rc.get("kill", 0.0), 4),
-                    "death": round(rc.get("death", 0.0), 4),
-                    "quest_accepted": round(rc.get("quest_accepted", 0.0), 4),
-                    "quest_completed": round(rc.get("quest_completed", 0.0), 4),
-                    "quest_proximity": round(rc.get("quest_proximity", 0.0), 4),
-                    "quest_progress": round(rc.get("quest_progress", 0.0), 4),
+                    "xp": round(self._ep_xp[i], 4),
+                    "kill": round(self._ep_kill[i], 4),
+                    "death": round(infos[i].get("reward_components", {}).get("death", 0.0), 4),
+                    "quest_proximity": round(self._ep_quest_prox[i], 4),
+                    "quest_progress": round(infos[i].get("reward_components", {}).get("quest_progress", 0.0), 4),
+                    "enemy_proximity": round(self._ep_enemy_prox[i], 4),
+                    "target_acquired": round(self._ep_target_acq[i], 4),
                 }
                 for a in range(ACTION_COUNT):
                     row[f"act_{a}"] = int(self.current_actions[a])
@@ -59,6 +70,11 @@ class EpisodeStatsCallback(BaseCallback):
                 self.current_actions = np.zeros(ACTION_COUNT, dtype=np.int32)
                 self._ep_rewards[i] = 0.0
                 self._ep_lengths[i] = 0
+                self._ep_xp[i] = 0.0
+                self._ep_kill[i] = 0.0
+                self._ep_enemy_prox[i] = 0.0
+                self._ep_target_acq[i] = 0.0
+                self._ep_quest_prox[i] = 0.0
                 self._write_csv()
 
         return True
@@ -112,7 +128,7 @@ def main():
         gae_lambda=0.95,
         clip_range=0.2,
         ent_coef=0.02,
-        device="cpu",
+        device="auto",
     )
 
     # Loop with periodic save to survive SubprocVecEnv crashes on Python 3.14

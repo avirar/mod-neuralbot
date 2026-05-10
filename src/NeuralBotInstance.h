@@ -78,6 +78,9 @@ private:
     std::map<uint32, std::array<uint16, 4>> _prevObjectiveCounts;
     float _cachedNearestQGDist = 0.0f;
     float _prevQGDist = 0.0f;
+    float _cachedNearestEnemyDist = 0.0f;
+    float _prevEnemyDist = 0.0f;
+    ObjectGuid _prevTargetGuid;
 
     bool _autoQuestEnabled = false;
     uint32 _questAutoCompleted = 0;

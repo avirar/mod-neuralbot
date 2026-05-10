@@ -142,7 +142,7 @@ class NeuralBotClient:
 
         info = {}
         extra = floats[OBS_TOTAL_SIZE:]
-        if len(extra) >= 10:
+        if len(extra) >= 12:
             info["reward_components"] = {
                 "xp": extra[0],
                 "damage_taken": extra[1],
@@ -153,6 +153,8 @@ class NeuralBotClient:
                 "quest_completed": extra[6],
                 "quest_proximity": extra[7],
                 "quest_progress": extra[8],
-                "time_penalty": extra[9],
+                "enemy_proximity": extra[9],
+                "target_acquired": extra[10],
+                "time_penalty": extra[11],
             }
         return obs, reward, done, info
