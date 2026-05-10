@@ -60,7 +60,7 @@ private:
     void InjectCMSG(uint16 opcode, std::function<void(WorldPacket&)> filler);
     void ProcessBotPackets();
 
-    float ComputeReward();
+    float ComputeReward(NeuralBotReward& out);
     void ResetRewardTracking();
 
     bool _enabled = false;

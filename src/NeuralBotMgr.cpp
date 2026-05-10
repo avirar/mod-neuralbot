@@ -572,8 +572,10 @@ void NeuralBotMgr::BuildObservationInto(NeuralBotObservation& obs)
     }
 }
 
-float NeuralBotMgr::ComputeReward()
+float NeuralBotMgr::ComputeReward(NeuralBotReward& out)
 {
+    out = NeuralBotReward{};
+
     Player* bot = _botPlayer;
     if (!bot)
         return 0.0f;
@@ -582,27 +584,43 @@ float NeuralBotMgr::ComputeReward()
 
     float curXp = static_cast<float>(bot->GetUInt32Value(PLAYER_XP));
     float xpDelta = curXp - _prevXp;
-    reward += xpDelta / 100.0f;
+    float xpReward = xpDelta / 100.0f;
+    reward += xpReward;
+    out.xpDelta = xpReward;
     _prevXp = curXp;
 
-    reward += _killCount * 1.0f;
+    float killReward = _killCount * 1.0f;
+    reward += killReward;
+    out.killReward = killReward;
     _killCount = 0.0f;
 
     float curHp = static_cast<float>(bot->GetHealth());
     float hpDelta = _prevHealth - curHp;
+    float damagePenalty = 0.0f;
     if (hpDelta > 0)
-        reward -= hpDelta / static_cast<float>(bot->GetMaxHealth()) * 0.5f;
+    {
+        damagePenalty = hpDelta / static_cast<float>(bot->GetMaxHealth()) * 0.5f;
+        reward -= damagePenalty;
+    }
+    out.damageTaken = damagePenalty;
     _prevHealth = curHp;
 
+    float deathValue = 0.0f;
     if (_diedThisStep)
     {
-        reward -= 10.0f;
+        deathValue = 10.0f;
+        reward -= deathValue;
+        out.deathPenalty = deathValue;
         _diedThisStep = false;
     }
 
     // --- Quest rewards ---
+    float questAcceptedReward = 0.0f;
+    float questCompletedReward = 0.0f;
+    float questProgressReward = 0.0f;
+    float questProximityReward = 0.0f;
+
     {
-        // Snapshot current quest state
         std::set<uint32> curActive;
         std::map<uint32, uint8> curStatus;
         std::map<uint32, std::array<uint16, 4>> curCounters;
@@ -625,17 +643,17 @@ float NeuralBotMgr::ComputeReward()
             curCounters[qid] = counts;
         }
 
-        // Check previously seen quests that may now be rewarded
         for (uint32 qid : _prevTrackedQuests)
             if (curActive.find(qid) == curActive.end())
                 curStatus[qid] = static_cast<uint8>(bot->GetQuestStatus(qid));
 
-        // Detect newly accepted quests
         for (uint32 qid : curActive)
             if (_prevTrackedQuests.find(qid) == _prevTrackedQuests.end())
+            {
                 reward += 5.0f;
+                questAcceptedReward += 5.0f;
+            }
 
-        // Detect newly completed/rewarded quests
         for (auto const& [qid, prevStatus] : _prevQuestStatus)
         {
             auto it = curStatus.find(qid);
@@ -644,31 +662,45 @@ float NeuralBotMgr::ComputeReward()
                 uint8 cur = it->second;
                 if (prevStatus == static_cast<uint8>(QUEST_STATUS_COMPLETE) &&
                     cur == static_cast<uint8>(QUEST_STATUS_REWARDED))
+                {
                     reward += 20.0f;
+                    questCompletedReward += 20.0f;
+                }
             }
         }
 
-        // Detect objective progress
         for (auto const& [qid, prevCounts] : _prevObjectiveCounts)
         {
             auto it = curCounters.find(qid);
             if (it != curCounters.end())
                 for (int i = 0; i < 4; ++i)
                     if (it->second[i] > prevCounts[i])
-                        reward += 0.5f * static_cast<float>(it->second[i] - prevCounts[i]);
+                    {
+                        float tick = 0.5f * static_cast<float>(it->second[i] - prevCounts[i]);
+                        reward += tick;
+                        questProgressReward += tick;
+                    }
         }
 
-        // Reward proximity to quest giver
         if (_cachedNearestQGDist > 0.0f && _cachedNearestQGDist < 5.0f)
-            reward += 0.5f * (1.0f - _cachedNearestQGDist / 5.0f);
+        {
+            questProximityReward = 0.5f * (1.0f - _cachedNearestQGDist / 5.0f);
+            reward += questProximityReward;
+        }
 
-        // Update snapshots
         _prevTrackedQuests.insert(curActive.begin(), curActive.end());
         _prevQuestStatus = std::move(curStatus);
         _prevObjectiveCounts = std::move(curCounters);
     }
 
-    reward -= 0.001f;
+    out.questAccepted = questAcceptedReward;
+    out.questCompleted = questCompletedReward;
+    out.questProgress = questProgressReward;
+    out.questProximity = questProximityReward;
+
+    float timePenalty = 0.001f;
+    reward -= timePenalty;
+    out.timePenalty = timePenalty;
 
     return reward;
 }
@@ -694,6 +726,8 @@ void NeuralBotMgr::ExecuteAction(uint32 action)
     Player* bot = _botPlayer;
     if (!bot || !bot->IsAlive())
         return;
+
+    LOG_INFO("module.neuralbot", "Action: {}", action);
 
     switch (action)
     {
@@ -1055,7 +1089,7 @@ NeuralBotStepResult NeuralBotMgr::Step(uint32 action)
     ExecuteAction(action);
     _stepCount++;
 
-    result.reward.total = ComputeReward();
+    result.reward.total = ComputeReward(result.reward);
 
     BuildObservationInto(result.observation);
 

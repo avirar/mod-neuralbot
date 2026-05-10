@@ -106,6 +106,19 @@ std::string NeuralBotWSHandler::ProcessMessage(const std::string& msg)
         for (size_t i = 0; i < OBS_TOTAL_SIZE; ++i)
             os << " " << flat[i];
 
+        // Append reward components for analysis
+        NeuralBotReward const& r = result.reward;
+        os << " " << r.xpDelta;
+        os << " " << r.damageTaken;
+        os << " " << r.killReward;
+        os << " " << r.deathPenalty;
+        os << " " << r.lootReward;
+        os << " " << r.questAccepted;
+        os << " " << r.questCompleted;
+        os << " " << r.questProximity;
+        os << " " << r.questProgress;
+        os << " " << r.timePenalty;
+
         return os.str();
     }
     else if (msg == "RESET")

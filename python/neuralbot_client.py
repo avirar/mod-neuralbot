@@ -144,4 +144,20 @@ class NeuralBotClient:
         reward = float(parts[2]) if len(parts) > 2 else 0.0
         floats = [float(x) for x in parts[3:]]
         obs = np.array(floats[:OBS_TOTAL_SIZE], dtype=np.float32)
-        return obs, reward, done, {}
+
+        info = {}
+        extra = floats[OBS_TOTAL_SIZE:]
+        if len(extra) >= 10:
+            info["reward_components"] = {
+                "xp": extra[0],
+                "damage_taken": extra[1],
+                "kill": extra[2],
+                "death": extra[3],
+                "loot": extra[4],
+                "quest_accepted": extra[5],
+                "quest_completed": extra[6],
+                "quest_proximity": extra[7],
+                "quest_progress": extra[8],
+                "time_penalty": extra[9],
+            }
+        return obs, reward, done, info
