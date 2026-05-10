@@ -110,6 +110,68 @@ uint32 NeuralBotMgr::GetSpellSlot(size_t index) const
     return index < 5 ? _spellSlots[index] : 0;
 }
 
+void NeuralBotMgr::GetSpellbook(std::vector<uint32>& spells)
+{
+    Player* bot = _botPlayer;
+    if (!bot)
+        return;
+
+    spells.clear();
+    PlayerSpellMap const& map = bot->GetSpellMap();
+    for (PlayerSpellMap::const_iterator itr = map.begin(); itr != map.end(); ++itr)
+    {
+        if (itr->second->State == PLAYERSPELL_REMOVED)
+            continue;
+        spells.push_back(itr->first);
+    }
+}
+
+void NeuralBotMgr::SetSpellSlots(std::vector<uint32> const& spells)
+{
+    std::fill(std::begin(_spellSlots), std::end(_spellSlots), 0u);
+    for (size_t i = 0; i < 5 && i < spells.size(); ++i)
+        _spellSlots[i] = spells[i];
+}
+
+void NeuralBotMgr::AutoPopulateSpellSlots()
+{
+    Player* bot = _botPlayer;
+    if (!bot)
+        return;
+
+    PlayerSpellMap const& map = bot->GetSpellMap();
+    std::vector<uint32> combatSpells;
+
+    for (PlayerSpellMap::const_iterator itr = map.begin(); itr != map.end(); ++itr)
+    {
+        if (itr->second->State == PLAYERSPELL_REMOVED)
+            continue;
+
+        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(itr->first);
+        if (!spellInfo)
+            continue;
+        if (spellInfo->IsPassive())
+            continue;
+        if (spellInfo->HasAttribute(SPELL_ATTR0_DO_NOT_DISPLAY))
+            continue;
+        if (spellInfo->HasEffect(SPELL_EFFECT_APPLY_AURA))
+            continue;
+        if (!spellInfo->HasEffect(SPELL_EFFECT_WEAPON_DAMAGE) &&
+            !spellInfo->HasEffect(SPELL_EFFECT_SCHOOL_DAMAGE) &&
+            !spellInfo->HasEffect(SPELL_EFFECT_ATTACK) &&
+            spellInfo->SpellFamilyName == 0)
+            continue;
+        if (bot->HasSpellCooldown(itr->first))
+            continue;
+
+        combatSpells.push_back(itr->first);
+    }
+
+    std::fill(std::begin(_spellSlots), std::end(_spellSlots), 0u);
+    for (size_t i = 0; i < 5 && i < combatSpells.size(); ++i)
+        _spellSlots[i] = combatSpells[i];
+}
+
 void NeuralBotMgr::OnPlayerLogin(Player* player)
 {
     if (!_enabled || !player)
@@ -132,6 +194,7 @@ void NeuralBotMgr::OnPlayerLogin(Player* player)
             _prevHealth = static_cast<float>(player->GetHealth());
             LOG_INFO("module.neuralbot", "NeuralBot player logged in: {} GUID: {}",
                 player->GetName(), player->GetGUID().GetCounter());
+            AutoPopulateSpellSlots();
         }
     }
 }

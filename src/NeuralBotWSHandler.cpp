@@ -5,6 +5,7 @@
 #include <boost/asio.hpp>
 #include <sstream>
 #include <cstring>
+#include <vector>
 
 using boost::asio::ip::tcp;
 
@@ -148,6 +149,26 @@ std::string NeuralBotWSHandler::ProcessMessage(const std::string& msg)
             os << " " << bot->GetZoneId();
         }
         return os.str();
+    }
+    else if (msg == "SPELLS")
+    {
+        std::vector<uint32> spells;
+        sNeuralBotMgr.GetSpellbook(spells);
+        std::ostringstream os;
+        os << "SPELLS";
+        for (size_t i = 0; i < spells.size(); ++i)
+            os << " " << spells[i];
+        return os.str();
+    }
+    else if (msg.substr(0, 13) == "SEND_SPELLBOOK ")
+    {
+        std::istringstream is(msg.substr(13));
+        std::vector<uint32> spells;
+        uint32 spellId = 0;
+        while (is >> spellId)
+            spells.push_back(spellId);
+        sNeuralBotMgr.SetSpellSlots(spells);
+        return "OK";
     }
 
     return "ERR unknown command";

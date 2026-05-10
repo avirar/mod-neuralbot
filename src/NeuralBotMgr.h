@@ -45,6 +45,9 @@ public:
 
     void SetSpellSlot(size_t index, uint32 spellId);
     uint32 GetSpellSlot(size_t index) const;
+    void GetSpellbook(std::vector<uint32>& spells);
+    void AutoPopulateSpellSlots();
+    void SetSpellSlots(std::vector<uint32> const& spells);
 
 private:
     NeuralBotMgr() = default;

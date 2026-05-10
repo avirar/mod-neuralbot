@@ -107,6 +107,18 @@ class NeuralBotClient:
         resp = self._send(f"STEP {action}")
         return self._parse_step_result(resp)
 
+    def get_spellbook(self) -> list:
+        resp = self._send("SPELLS")
+        parts = resp.split()
+        if parts[0] == "SPELLS" and len(parts) > 1:
+            return [int(x) for x in parts[1:]]
+        return []
+
+    def send_spellbook(self, spell_ids: list):
+        spell_str = " ".join(str(s) for s in spell_ids)
+        self._send(f"SEND_SPELLBOOK {spell_str}")
+        return "OK"
+
     def set_spells(self, spell_ids: list):
         spell_str = " ".join(str(s) for s in spell_ids)
         self._send(f"SET_SPELLS {spell_str}")

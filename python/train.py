@@ -27,6 +27,12 @@ def main():
         env.close()
         sys.exit(1)
 
+    spellbook = env.client.get_spellbook()
+    if not spellbook:
+        print("WARNING: No spells found in bot's spellbook.")
+    else:
+        print(f"Discovered {len(spellbook)} spells in spellbook: {spellbook}")
+
     print(f"Training PPO for {timesteps} timesteps...")
 
     checkpoint_callback = CheckpointCallback(
