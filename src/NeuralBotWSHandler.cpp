@@ -20,7 +20,7 @@ void NeuralBotWSHandler::Start(uint16 port)
     _port = port;
     _running = true;
     _thread = std::thread(&NeuralBotWSHandler::AcceptLoop, this);
-    LOG_INFO("module.neuralbot", "WebSocket handler started on port {}", port);
+    LOG_INFO("module.neuralbot", "NeuralBot TCP handler started on port {}", port);
 }
 
 void NeuralBotWSHandler::Stop()
@@ -46,7 +46,7 @@ void NeuralBotWSHandler::AcceptLoop()
             acceptor.accept(socket, ec);
             if (ec)
                 continue;
-            HandleClient(std::move(socket));
+            std::thread(&NeuralBotWSHandler::HandleClient, this, std::move(socket)).detach();
         }
         catch (...)
         {
@@ -76,10 +76,11 @@ void NeuralBotWSHandler::HandleClient(tcp::socket socket)
                 continue;
 
             std::string response = ProcessMessage(line);
-            response += "\n";
-            boost::asio::write(socket, boost::asio::buffer(response), ec);
-            if (ec)
-                break;
+            if (!response.empty())
+            {
+                response += "\n";
+                boost::asio::write(socket, boost::asio::buffer(response), ec);
+            }
         }
     }
     catch (...)
@@ -89,12 +90,20 @@ void NeuralBotWSHandler::HandleClient(tcp::socket socket)
 
 std::string NeuralBotWSHandler::ProcessMessage(const std::string& msg)
 {
-    if (msg.substr(0, 5) == "STEP ")
-    {
-        uint32 action = ACTION_NOOP;
-        try { action = std::stoul(msg.substr(5)); } catch (...) {}
+    std::istringstream iss(msg);
+    std::string cmd;
+    iss >> cmd;
 
-        NeuralBotStepResult result = sNeuralBotMgr.Step(action);
+    if (cmd == "PING")
+        return "PONG";
+
+    if (cmd == "STEP")
+    {
+        std::string botName;
+        int action = 0;
+        iss >> botName >> action;
+
+        NeuralBotStepResult result = sNeuralBotMgr.Step(botName, static_cast<uint32>(action));
 
         std::ostringstream os;
         os << "RESULT";
@@ -106,112 +115,93 @@ std::string NeuralBotWSHandler::ProcessMessage(const std::string& msg)
         for (size_t i = 0; i < OBS_TOTAL_SIZE; ++i)
             os << " " << flat[i];
 
-        // Append reward components for analysis
         NeuralBotReward const& r = result.reward;
-        os << " " << r.xpDelta;
-        os << " " << r.damageTaken;
-        os << " " << r.killReward;
-        os << " " << r.deathPenalty;
-        os << " " << r.lootReward;
-        os << " " << r.questAccepted;
-        os << " " << r.questCompleted;
-        os << " " << r.questProximity;
-        os << " " << r.questProgress;
-        os << " " << r.timePenalty;
+        os << " " << r.xpDelta << " " << r.damageTaken << " " << r.killReward
+           << " " << r.deathPenalty << " " << r.lootReward
+           << " " << r.questAccepted << " " << r.questCompleted
+           << " " << r.questProximity << " " << r.questProgress
+           << " " << r.timePenalty;
 
         return os.str();
     }
-    else if (msg == "RESET")
-    {
-        NeuralBotObservation obs = sNeuralBotMgr.Reset();
 
+    if (cmd == "RESET")
+    {
+        std::string botName;
+        iss >> botName;
+
+        NeuralBotObservation obs = sNeuralBotMgr.Reset(botName);
         std::ostringstream os;
         os << "OBS";
         float flat[OBS_TOTAL_SIZE];
         obs.ToFloatArray(flat);
         for (size_t i = 0; i < OBS_TOTAL_SIZE; ++i)
             os << " " << flat[i];
-
         return os.str();
     }
-    else if (msg == "PING")
+
+    if (cmd == "STATUS")
     {
-        return "PONG";
-    }
-    else if (msg.substr(0, 10) == "SET_SPELLS ")
-    {
-        std::istringstream is(msg.substr(10));
-        for (size_t i = 0; i < 5; ++i)
-        {
-            uint32 spellId = 0;
-            is >> spellId;
-            sNeuralBotMgr.SetSpellSlot(i, spellId);
-        }
-        return "OK";
-    }
-    else if (msg == "STATUS")
-    {
-        Player* bot = sNeuralBotMgr.GetBotPlayer();
+        std::string botName;
+        iss >> botName;
+
+        NeuralBotInstance* inst = sNeuralBotMgr.GetInstance(botName);
         std::ostringstream os;
         os << "STATUS";
-        os << " " << (bot ? "READY" : "NO_BOT");
-        if (bot)
+        if (inst && inst->GetPlayer())
         {
-            os << " " << bot->GetName();
-            os << " " << static_cast<int>(bot->GetLevel());
-            os << " " << bot->GetZoneId();
+            Player* p = inst->GetPlayer();
+            os << " READY " << p->GetName() << " " << uint32(p->GetLevel()) << " " << p->GetZoneId();
         }
+        else
+            os << " NO_BOT";
         return os.str();
     }
-    else if (msg == "SPELLS")
+
+    if (cmd == "BOTS")
     {
+        auto names = sNeuralBotMgr.GetBotNames();
+        std::ostringstream os;
+        os << "BOTS";
+        for (auto const& n : names)
+            os << " " << n;
+        return os.str();
+    }
+
+    if (cmd == "SPELLS")
+    {
+        std::string botName;
+        iss >> botName;
+
+        NeuralBotInstance* inst = sNeuralBotMgr.GetInstance(botName);
+        if (!inst)
+            return "ERR bot not found";
+
         std::vector<uint32> spells;
-        sNeuralBotMgr.GetSpellbook(spells);
+        inst->GetSpellbook(spells);
         std::ostringstream os;
         os << "SPELLS";
-        for (size_t i = 0; i < spells.size(); ++i)
-            os << " " << spells[i];
+        for (uint32 s : spells)
+            os << " " << s;
         return os.str();
     }
-    else if (msg.substr(0, 13) == "SEND_SPELLBOOK ")
+
+    if (cmd == "SET_SPELLS")
     {
-        std::istringstream is(msg.substr(13));
-        std::vector<uint32> spells;
-        uint32 spellId = 0;
-        while (is >> spellId)
-            spells.push_back(spellId);
-        sNeuralBotMgr.SetSpellSlots(spells);
+        std::string botName;
+        iss >> botName;
+
+        NeuralBotInstance* inst = sNeuralBotMgr.GetInstance(botName);
+        if (!inst)
+            return "ERR bot not found";
+
+        std::vector<uint32> spellIds;
+        uint32 s;
+        while (iss >> s)
+            spellIds.push_back(s);
+        inst->SetSpellSlots(spellIds);
         return "OK";
     }
 
     return "ERR unknown command";
-}
-
-bool NeuralBotWSHandler::HasPendingAction() const
-{
-    return _actionReady;
-}
-
-uint32 NeuralBotWSHandler::GetPendingAction()
-{
-    std::lock_guard<std::mutex> lock(_actionMutex);
-    return _pendingAction;
-}
-
-void NeuralBotWSHandler::ClearPendingAction()
-{
-    std::lock_guard<std::mutex> lock(_actionMutex);
-    _actionReady = false;
-}
-
-void NeuralBotWSHandler::SendStepResult(const NeuralBotStepResult& result)
-{
-}
-
-void NeuralBotWSHandler::SendResetResult(const NeuralBotObservation& obs)
-{
-}
-
-void NeuralBotWSHandler::SendError(const std::string& msg)
-{
 }

@@ -2,12 +2,12 @@
 #define NEURALBOTMGR_H
 
 #include "NeuralBotCommon.h"
+#include "NeuralBotInstance.h"
 #include "Player.h"
 #include "WorldSession.h"
 #include "WorldPacket.h"
 
 #include <mutex>
-#include <condition_variable>
 #include <deque>
 #include <vector>
 #include <functional>
@@ -16,6 +16,7 @@
 #include <set>
 #include <map>
 #include <array>
+#include <string>
 
 class NeuralBotMgr
 {
@@ -34,71 +35,38 @@ public:
     void OnPlayerCreatureKill(Player* killer, Creature* killed);
     void OnPlayerAfterUpdate(Player* player, uint32 diff);
 
-    void HandleBotLogin();
-    void ScheduleLogin();
-    void DoLogin();
+    NeuralBotStepResult Step(std::string const& botName, uint32 action);
+    NeuralBotObservation Reset(std::string const& botName);
+    void RecordOpcodeFor(Player* player, uint16 opcode);
 
-    Player* GetBotPlayer();
-    WorldSession* GetBotSession();
-
-    NeuralBotStepResult Step(uint32 action);
-    NeuralBotObservation Reset();
-
-    void RecordOpcode(uint16 opcode);
-
-    void SetSpellSlot(size_t index, uint32 spellId);
-    uint32 GetSpellSlot(size_t index) const;
-    void GetSpellbook(std::vector<uint32>& spells);
-    void AutoPopulateSpellSlots();
-    void SetSpellSlots(std::vector<uint32> const& spells);
+    NeuralBotInstance* GetInstance(std::string const& botName);
+    std::vector<std::string> GetBotNames() const;
+    size_t GetBotCount() const { return _instances.size(); }
 
 private:
     NeuralBotMgr() = default;
+    NeuralBotMgr(NeuralBotMgr const&) = delete;
+    NeuralBotMgr& operator=(NeuralBotMgr const&) = delete;
 
-    void BuildObservationInto(NeuralBotObservation& obs);
-    void ExecuteAction(uint32 action);
-    void InjectCMSG(uint16 opcode, std::function<void(WorldPacket&)> filler);
-    void ProcessBotPackets();
-
-    float ComputeReward(NeuralBotReward& out);
-    void ResetRewardTracking();
+    void SpawnAndLoginBots();
+    void DoPendingLogin();
 
     bool _enabled = false;
-    bool _botReady = false;
-    bool _loginScheduled = false;
-    uint32 _botAccountId = 0;
-    std::string _botCharacterName;
-    ObjectGuid _botGuid;
-    Player* _botPlayer = nullptr;
-    WorldSession* _botSession = nullptr;
-    ObjectGuid::LowType _botGuidLow = 0;
 
-    uint32 _stepCount = 0;
-    uint32 _maxSteps = 1000;
-    uint32 _tickRateMs = 50;
+    std::map<std::string, NeuralBotInstance*> _instances;
+    std::map<ObjectGuid, NeuralBotInstance*> _instancesByGuid;
+
+    struct PendingLogin
+    {
+        uint32 accountId;
+        ObjectGuid guid;
+        std::string name;
+        WorldSession* session;
+    };
+    std::vector<PendingLogin> _pendingLogins;
+    size_t _pendingLoginIndex = 0;
     uint32 _loginTimer = 0;
-
-    uint32 _spellSlots[5] = {0};
-
-    std::mutex _opcodeMutex;
-    std::deque<uint16> _opcodeHistory;
-
-    float _prevXp = 0.0f;
-    float _prevHealth = 0.0f;
-    float _killCount = 0.0f;
-    bool _diedThisStep = false;
-
-    // Quest state tracking
-    std::set<uint32> _prevTrackedQuests;
-    std::map<uint32, uint8> _prevQuestStatus;
-    std::map<uint32, std::array<uint16, 4>> _prevObjectiveCounts;
-    float _cachedNearestQGDist = 0.0f;
-
-    std::mutex _stepMutex;
-    std::condition_variable _stepCv;
-    std::atomic<bool> _stepPending{false};
-    uint32 _pendingAction = ACTION_NOOP;
-    NeuralBotStepResult _lastResult;
+    bool _loginScheduled = false;
 };
 
 #define sNeuralBotMgr NeuralBotMgr::instance()

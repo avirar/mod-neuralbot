@@ -67,10 +67,14 @@ ACTION_NAMES = {
 }
 
 
+BOT_NAMES = [f"Neuralbot{i}" for i in range(20)]
+
+
 class NeuralBotClient:
-    def __init__(self, host="127.0.0.1", port=9000):
+    def __init__(self, host="127.0.0.1", port=9000, bot_name="Neuralbot0"):
         self.host = host
         self.port = port
+        self.bot_name = bot_name
         self._sock = None
 
     def connect(self):
@@ -98,7 +102,7 @@ class NeuralBotClient:
         return resp == "PONG"
 
     def status(self) -> dict:
-        resp = self._send("STATUS")
+        resp = self._send(f"STATUS {self.bot_name}")
         parts = resp.split()
         result = {"state": parts[1] if len(parts) > 1 else "UNKNOWN"}
         if len(parts) > 4:
@@ -108,15 +112,15 @@ class NeuralBotClient:
         return result
 
     def reset(self) -> np.ndarray:
-        resp = self._send("RESET")
+        resp = self._send(f"RESET {self.bot_name}")
         return self._parse_obs(resp)
 
     def step(self, action: int):
-        resp = self._send(f"STEP {action}")
+        resp = self._send(f"STEP {self.bot_name} {action}")
         return self._parse_step_result(resp)
 
     def get_spellbook(self) -> list:
-        resp = self._send("SPELLS")
+        resp = self._send(f"SPELLS {self.bot_name}")
         parts = resp.split()
         if parts[0] == "SPELLS" and len(parts) > 1:
             return [int(x) for x in parts[1:]]
@@ -124,12 +128,12 @@ class NeuralBotClient:
 
     def send_spellbook(self, spell_ids: list):
         spell_str = " ".join(str(s) for s in spell_ids)
-        self._send(f"SEND_SPELLBOOK {spell_str}")
+        self._send(f"SEND_SPELLBOOK {self.bot_name} {spell_str}")
         return "OK"
 
     def set_spells(self, spell_ids: list):
         spell_str = " ".join(str(s) for s in spell_ids)
-        self._send(f"SET_SPELLS {spell_str}")
+        self._send(f"SET_SPELLS {self.bot_name} {spell_str}")
 
     def _parse_obs(self, resp: str) -> np.ndarray:
         parts = resp.split()

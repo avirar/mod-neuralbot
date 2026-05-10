@@ -24,7 +24,6 @@ public:
         {
             uint16 port = sConfigMgr->GetOption<uint16>("NeuralBot.WebSocketPort", 9000);
             sNeuralBotWS.Start(port);
-            sNeuralBotMgr.ScheduleLogin();
             LOG_INFO("module.neuralbot", "NeuralBot world script started");
         }
     }

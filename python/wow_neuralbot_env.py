@@ -11,10 +11,11 @@ from neuralbot_client import (
 class WoWNeuralBotEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, host="127.0.0.1", port=9000, render_mode=None):
+    def __init__(self, host="127.0.0.1", port=9000, bot_name="Neuralbot0", render_mode=None):
         super().__init__()
         self.render_mode = render_mode
-        self.client = NeuralBotClient(host, port)
+        self.bot_name = bot_name
+        self.client = NeuralBotClient(host, port, bot_name)
 
         self.observation_space = spaces.Box(
             low=-1.0, high=65535.0, shape=(OBS_TOTAL_SIZE,), dtype=np.float32
