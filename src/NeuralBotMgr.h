@@ -50,7 +50,7 @@ private:
     NeuralBotMgr(NeuralBotMgr const&) = delete;
     NeuralBotMgr& operator=(NeuralBotMgr const&) = delete;
 
-    void DoPendingLogin();
+    void LoginAllBots();
     bool ProcessPendingRequests();
 
     bool _enabled = false;
@@ -67,9 +67,6 @@ private:
         WorldSession* session;
     };
     std::vector<PendingLogin> _pendingLogins;
-    size_t _pendingLoginIndex = 0;
-    uint32 _loginTimer = 0;
-    bool _loginScheduled = false;
 
     struct PendingStep
     {

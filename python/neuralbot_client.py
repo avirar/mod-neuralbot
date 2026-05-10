@@ -50,7 +50,7 @@ ACTION_NAMES = {
 }
 
 
-NUM_BOTS = int(os.environ.get("NEURALBOT_NUM_BOTS", "120"))
+NUM_BOTS = int(os.environ.get("NEURALBOT_NUM_BOTS", "400"))
 
 def generate_bot_name(index: int) -> str:
     if index < 26:
