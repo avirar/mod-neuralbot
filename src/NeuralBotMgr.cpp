@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <sstream>
+#include <thread>
 
 NeuralBotMgr& NeuralBotMgr::instance()
 {
@@ -29,14 +30,7 @@ void NeuralBotMgr::Initialize()
 
     LOG_INFO("module.neuralbot", "NeuralBot manager initializing...");
 
-    // Create accounts and characters via factory
     NeuralBotFactory::CreateAccounts();
-    NeuralBotFactory::CreateCharacters();
-
-    // Schedule bot login (async, staggered)
-    _loginScheduled = true;
-    _pendingLoginIndex = 0;
-    _loginTimer = 2000; // start first login after 2s delay
 
     LOG_INFO("module.neuralbot", "NeuralBot manager initialized. Target: {} bots", NeuralBotFactory::GetBotTemplates().size());
 }
@@ -52,38 +46,60 @@ void NeuralBotMgr::Shutdown()
 
 void NeuralBotMgr::SpawnAndLoginBots()
 {
-    auto templates = NeuralBotFactory::GetBotTemplates();
-
-    for (auto const& tpl : templates)
+    // Create characters first (requires fully initialized world)
+    if (!NeuralBotFactory::CreateCharacters())
     {
-        // Check if character exists in cache
-        CharacterCacheEntry const* entry = sCharacterCache->GetCharacterCacheByName(tpl.name);
-        if (!entry)
+        LOG_ERROR("module.neuralbot", "Failed to create characters");
+        return;
+    }
+
+    // Wait for all DB writes to commit before any login attempt
+    // (mod-playerbots pattern: without this, queries hit stale connections)
+    while (CharacterDatabase.QueueSize())
+        std::this_thread::sleep_for(1s);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Test with old Neuralbot first
+    {
+        QueryResult dbResult = CharacterDatabase.Query("SELECT guid, account FROM characters WHERE name = 'Neuralbot'");
+        if (dbResult)
         {
-            LOG_ERROR("module.neuralbot", "Character '{}' not found in cache", tpl.name);
-            continue;
+            Field* f = dbResult->Fetch();
+            ObjectGuid guid = ObjectGuid::Create<HighGuid::Player>(f[0].Get<uint32>());
+            uint32 accountId = f[1].Get<uint32>();
+            WorldSession* ts = new WorldSession(accountId, "", 0x0, nullptr, SEC_PLAYER,
+                EXPANSION_WRATH_OF_THE_LICH_KING, time_t(0), sWorld->GetDefaultDbcLocale(),
+                0, false, false, 0, true);
+            _pendingLogins.push_back({accountId, guid, "Neuralbot_test", ts});
+            LOG_INFO("module.neuralbot", "Added test Neuralbot to pending logins");
         }
+    }
 
-        uint32 accountId = entry->AccountId;
-        ObjectGuid guid = entry->Guid;
+    auto created = NeuralBotFactory::GetCreatedCharacters();
 
+    for (auto const& info : created)
+    {
         // Create bot session (never registered with WorldSessionMgr)
-        WorldSession* session = new WorldSession(accountId, "", 0x0, nullptr,
+        WorldSession* session = new WorldSession(info.accountId, "", 0x0, nullptr,
             SEC_PLAYER, EXPANSION_WRATH_OF_THE_LICH_KING, time_t(0),
             sWorld->GetDefaultDbcLocale(), 0, false, false, 0, true);
 
-        auto holder = std::make_shared<LoginQueryHolder>(accountId, guid);
+        auto holder = std::make_shared<LoginQueryHolder>(info.accountId, info.guid);
         if (!holder->Initialize())
         {
-            LOG_ERROR("module.neuralbot", "Failed to init LoginQueryHolder for '{}'", tpl.name);
+            LOG_ERROR("module.neuralbot", "Failed to init LoginQueryHolder for '{}'", info.name);
             delete session;
             continue;
         }
 
-        _pendingLogins.push_back({accountId, guid, tpl.name, session});
+        _pendingLogins.push_back({info.accountId, info.guid, info.name, session});
     }
 
     LOG_INFO("module.neuralbot", "Queued {} bot(s) for async login", _pendingLogins.size());
+
+    // Start staggered login process (first login after 5s delay)
+    _loginScheduled = true;
+    _loginTimer = 5000;
 }
 
 void NeuralBotMgr::OnWorldUpdate(uint32 diff)
@@ -100,10 +116,14 @@ void NeuralBotMgr::OnWorldUpdate(uint32 diff)
             _loginTimer -= diff;
 
         if (_loginTimer == 0)
+        {
+            LOG_INFO("module.neuralbot", "Login timer fired, calling DoPendingLogin (idx={}/{})",
+                _pendingLoginIndex, _pendingLogins.size());
             DoPendingLogin();
+        }
     }
 
-    // Heartbeat for already-logged-in bots (process packets)
+    // Heartbeat for already-logged-in bots
     for (auto& [name, inst] : _instances)
         inst->ProcessBotPackets();
 }
@@ -120,6 +140,8 @@ void NeuralBotMgr::DoPendingLogin()
     auto& pending = _pendingLogins[_pendingLoginIndex];
     _pendingLoginIndex++;
 
+    LOG_INFO("module.neuralbot", "Logging in '{}' (GUID:{} Account:{})...", pending.name, pending.guid.GetCounter(), pending.accountId);
+
     auto holder = std::make_shared<LoginQueryHolder>(pending.accountId, pending.guid);
     if (!holder->Initialize())
     {
@@ -131,33 +153,34 @@ void NeuralBotMgr::DoPendingLogin()
     WorldSession* session = pending.session;
 
     sWorld->AddQueryHolderCallback(CharacterDatabase.DelayQueryHolder(holder))
-        .AfterComplete([this, session, name = pending.name](SQLQueryHolderBase const& queryHolder)
+        .AfterComplete([this, session, name = pending.name, guid = pending.guid](SQLQueryHolderBase const& queryHolder)
         {
-            LoginQueryHolder const& lqh = static_cast<LoginQueryHolder const&>(queryHolder);
-
             try
             {
+                LoginQueryHolder const& lqh = static_cast<LoginQueryHolder const&>(queryHolder);
                 session->HandlePlayerLoginFromDB(lqh);
             }
             catch (std::exception const& e)
             {
                 LOG_ERROR("module.neuralbot", "Login exception for '{}': {}", name, e.what());
-                _loginTimer = 500;
+                _loginTimer = 1500;
+                return;
+            }
+            catch (...)
+            {
+                LOG_ERROR("module.neuralbot", "Unknown login exception for '{}'", name);
+                _loginTimer = 1500;
                 return;
             }
 
             Player* player = session->GetPlayer();
             if (!player)
             {
-                LOG_ERROR("module.neuralbot", "Login failed for '{}'", name);
-                _loginTimer = 500;
+                LOG_ERROR("module.neuralbot", "Login failed for '{}' (no Player)", name);
+                _loginTimer = 1500;
                 return;
             }
 
-            // Verify session is bot
-            ASSERT(session->IsBot());
-
-            // Create instance
             NeuralBotInstance* inst = new NeuralBotInstance(player, session);
             _instances[name] = inst;
             _instancesByGuid[player->GetGUID()] = inst;
@@ -165,8 +188,7 @@ void NeuralBotMgr::DoPendingLogin()
             LOG_INFO("module.neuralbot", "Bot '{}' logged in (GUID:{} Level:{} Zone:{})",
                 name, player->GetGUID().GetCounter(), uint32(player->GetLevel()), player->GetZoneId());
 
-            // Schedule next bot login with 1.5s stagger to avoid DB contention
-            _loginTimer = 1500;
+            _loginTimer = 2000;
         });
 }
 

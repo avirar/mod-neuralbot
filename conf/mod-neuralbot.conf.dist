@@ -5,3 +5,4 @@ NeuralBot.BotCharacterName = "Neuralbot"
 NeuralBot.BotAccountId = 0
 NeuralBot.MaxEpisodeSteps = 1000
 NeuralBot.LogPackets = 0
+NeuralBot.CleanupOnStartup = 0

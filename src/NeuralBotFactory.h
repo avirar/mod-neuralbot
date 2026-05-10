@@ -14,12 +14,21 @@ struct BotCharacterTemplate
     uint8 gender;
 };
 
+struct CreatedCharacterInfo
+{
+    std::string name;
+    ObjectGuid guid;
+    uint32 accountId;
+};
+
 class NeuralBotFactory
 {
 public:
     static std::vector<BotCharacterTemplate> GetBotTemplates();
     static bool CreateAccounts();
     static bool CreateCharacters();
+    static void CleanupBots();
+    static std::vector<CreatedCharacterInfo> const& GetCreatedCharacters();
 };
 
 #endif

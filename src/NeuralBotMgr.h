@@ -42,13 +42,13 @@ public:
     NeuralBotInstance* GetInstance(std::string const& botName);
     std::vector<std::string> GetBotNames() const;
     size_t GetBotCount() const { return _instances.size(); }
+    void SpawnAndLoginBots();
 
 private:
     NeuralBotMgr() = default;
     NeuralBotMgr(NeuralBotMgr const&) = delete;
     NeuralBotMgr& operator=(NeuralBotMgr const&) = delete;
 
-    void SpawnAndLoginBots();
     void DoPendingLogin();
 
     bool _enabled = false;

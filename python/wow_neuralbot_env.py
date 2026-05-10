@@ -11,7 +11,7 @@ from neuralbot_client import (
 class WoWNeuralBotEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, host="127.0.0.1", port=9000, bot_name="Neuralbot0", render_mode=None):
+    def __init__(self, host="127.0.0.1", port=9000, bot_name="NeuralbotA", render_mode=None):
         super().__init__()
         self.render_mode = render_mode
         self.bot_name = bot_name

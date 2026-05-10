@@ -1,4 +1,5 @@
 #include "NeuralBotMgr.h"
+#include "NeuralBotFactory.h"
 #include "NeuralBotWSHandler.h"
 #include "NeuralBotCommon.h"
 #include "ScriptMgr.h"
@@ -15,6 +16,13 @@ public:
 
     void OnAfterConfigLoad(bool /*reload*/) override
     {
+        if (sConfigMgr->GetOption<bool>("NeuralBot.CleanupOnStartup", false))
+        {
+            // Cleanup runs BEFORE Initialize — deletes all bot accounts/chars
+            // Then Initialize recreates accounts fresh for OnStartup to use
+            NeuralBotFactory::CleanupBots();
+        }
+
         sNeuralBotMgr.Initialize();
     }
 
@@ -24,6 +32,7 @@ public:
         {
             uint16 port = sConfigMgr->GetOption<uint16>("NeuralBot.WebSocketPort", 9000);
             sNeuralBotWS.Start(port);
+            sNeuralBotMgr.SpawnAndLoginBots();
             LOG_INFO("module.neuralbot", "NeuralBot world script started");
         }
     }

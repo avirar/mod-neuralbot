@@ -67,11 +67,11 @@ ACTION_NAMES = {
 }
 
 
-BOT_NAMES = [f"Neuralbot{i}" for i in range(20)]
+BOT_NAMES = [f"Neuralbot{chr(ord('A') + i)}" for i in range(20)]
 
 
 class NeuralBotClient:
-    def __init__(self, host="127.0.0.1", port=9000, bot_name="Neuralbot0"):
+    def __init__(self, host="127.0.0.1", port=9000, bot_name="NeuralbotA"):
         self.host = host
         self.port = port
         self.bot_name = bot_name
