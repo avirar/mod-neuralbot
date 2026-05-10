@@ -121,8 +121,8 @@ def main():
         "MlpPolicy",
         env,
         verbose=1,
-        n_steps=512,
-        batch_size=256,
+        n_steps=2048,
+        batch_size=512,
         learning_rate=3e-4,
         gamma=0.99,
         gae_lambda=0.95,
@@ -132,7 +132,7 @@ def main():
     )
 
     # Training loop: recreate env each chunk to survive SubprocVecEnv worker deaths
-    steps_per_chunk = 200000
+    steps_per_chunk = 1000000
     total_done = 0
     checkpoint_num = 0
     while total_done < timesteps:
@@ -149,14 +149,13 @@ def main():
         steps_taken = model.num_timesteps - steps_before
         total_done += steps_taken
         checkpoint_num += 1
-        model_path_ckpt = f"{model_path}_ckpt_{checkpoint_num}"
-        model.save(model_path_ckpt)
+        model.save(f"{model_path}_ckpt_{checkpoint_num}")
         print(f"  Ckpt {checkpoint_num}: {steps_taken} steps ({total_done}/{timesteps})")
 
-        # Always recreate env to avoid stale workers
+        # Recreate env to flush any dead workers
         try:
             env.close()
-        except:
+        except Exception:
             pass
         env = SubprocVecEnv([make_env(name, host, port) for name in BOT_NAMES])
         model.set_env(env)

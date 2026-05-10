@@ -50,7 +50,7 @@ ACTION_NAMES = {
 }
 
 
-NUM_BOTS = int(os.environ.get("NEURALBOT_NUM_BOTS", "40"))
+NUM_BOTS = int(os.environ.get("NEURALBOT_NUM_BOTS", "120"))
 
 def generate_bot_name(index: int) -> str:
     if index < 26:
@@ -78,15 +78,23 @@ class NeuralBotClient:
             self._sock.close()
             self._sock = None
 
-    def _send(self, msg: str) -> str:
-        self._sock.sendall((msg + "\n").encode("utf-8"))
-        data = b""
-        while b"\n" not in data:
-            chunk = self._sock.recv(4096)
-            if not chunk:
-                raise ConnectionError("Server closed connection")
-            data += chunk
-        return data.decode("utf-8").strip()
+    def _send(self, msg: str, retries: int = 3) -> str:
+        for attempt in range(retries):
+            try:
+                self._sock.sendall((msg + "\n").encode("utf-8"))
+                data = b""
+                while b"\n" not in data:
+                    chunk = self._sock.recv(4096)
+                    if not chunk:
+                        raise ConnectionError("Server closed connection")
+                    data += chunk
+                return data.decode("utf-8").strip()
+            except (ConnectionError, OSError):
+                if attempt < retries - 1:
+                    self.close()
+                    self.connect()
+                else:
+                    raise
 
     def ping(self) -> bool:
         resp = self._send("PING")

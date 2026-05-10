@@ -34,7 +34,15 @@ class WoWNeuralBotEnv(gym.Env):
         return obs, info
 
     def step(self, action):
-        obs, reward, terminated, info = self.client.step(int(action))
+        try:
+            obs, reward, terminated, info = self.client.step(int(action))
+        except Exception:
+            self.client.close()
+            self.client.connect()
+            obs = np.zeros(OBS_TOTAL_SIZE, dtype=np.float32)
+            reward = 0.0
+            terminated = True
+            info = {}
         truncated = False
         if self.render_mode == "human":
             print(f"Action: {action} Reward: {reward:.4f} Done: {terminated}")
