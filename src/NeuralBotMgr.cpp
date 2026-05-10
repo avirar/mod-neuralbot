@@ -346,10 +346,18 @@ void NeuralBotMgr::ProcessBotPackets()
     {
         if (!packet)
             continue;
-        auto opcode = static_cast<OpcodeClient>(packet->GetOpcode());
-        auto const* opHandle = opcodeTable[opcode];
-        if (opHandle)
-            opHandle->Call(_botSession, *packet);
+        try
+        {
+            auto opcode = static_cast<OpcodeClient>(packet->GetOpcode());
+            auto const* opHandle = opcodeTable[opcode];
+            if (opHandle)
+                opHandle->Call(_botSession, *packet);
+        }
+        catch (ByteBufferException const& e)
+        {
+            auto opcode = static_cast<OpcodeClient>(packet->GetOpcode());
+            LOG_ERROR("module.neuralbot", "ByteBufferException for opcode {}: {}", opcode, e.what());
+        }
         delete packet;
     }
 }
@@ -362,6 +370,7 @@ void NeuralBotMgr::InjectCMSG(uint16 opcode, std::function<void(WorldPacket&)> f
     WorldPacket* pkt = new WorldPacket(opcode, 64);
     if (filler)
         filler(*pkt);
+    pkt->resize(pkt->wpos());
     _botSession->QueuePacket(pkt);
 }
 
@@ -678,9 +687,47 @@ void NeuralBotMgr::ExecuteAction(uint32 action)
         uint32 spellId = _spellSlots[slot];
         if (spellId > 0 && bot->IsAlive())
         {
-            InjectCMSG(CMSG_CAST_SPELL, [spellId](WorldPacket& pkt) {
-                pkt << uint8(0);
-                pkt << spellId;
+            Unit* target = bot->GetSelectedUnit();
+            if (!target)
+            {
+                float range = 40.0f;
+                std::list<Unit*> targets;
+                Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, range);
+                Acore::UnitListSearcher<decltype(check)> searcher(bot, targets, check);
+                Cell::VisitObjects(bot, searcher, range);
+
+                Unit* nearest = nullptr;
+                float minDist = range + 1.0f;
+                for (Unit* u : targets)
+                {
+                    if (!u || !u->IsAlive())
+                        continue;
+                    float d = bot->GetDistance(u);
+                    if (d < minDist)
+                    {
+                        minDist = d;
+                        nearest = u;
+                    }
+                }
+
+                if (nearest)
+                    target = nearest;
+            }
+
+            InjectCMSG(CMSG_CAST_SPELL, [spellId, target](WorldPacket& pkt) {
+                pkt << uint8(0);       // castCount
+                pkt << spellId;        // spellId (uint32)
+                pkt << uint8(0);       // castFlags
+
+                if (target)
+                {
+                    pkt << uint32(2);              // targetMask = TARGET_FLAG_UNIT
+                    pkt << target->GetGUID().WriteAsPacked();  // packed target guid
+                }
+                else
+                {
+                    pkt << uint32(0);              // targetMask = TARGET_FLAG_NONE
+                }
             });
         }
         break;
