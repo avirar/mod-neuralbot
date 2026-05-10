@@ -80,7 +80,7 @@ class NeuralBotClient:
     def connect(self):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.connect((self.host, self.port))
-        self._sock.settimeout(30.0)
+        self._sock.settimeout(60.0)
 
     def close(self):
         if self._sock:

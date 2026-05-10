@@ -123,6 +123,9 @@ void NeuralBotMgr::OnWorldUpdate(uint32 diff)
         }
     }
 
+    // Process queued step/reset requests on the world thread
+    ProcessPendingRequests();
+
     // Heartbeat for already-logged-in bots
     for (auto& [name, inst] : _instances)
         inst->ProcessBotPackets();
@@ -254,21 +257,63 @@ void NeuralBotMgr::RecordOpcodeFor(Player* player, uint16 opcode)
 
 NeuralBotStepResult NeuralBotMgr::Step(std::string const& botName, uint32 action)
 {
-    auto it = _instances.find(botName);
-    if (it != _instances.end())
-        return it->second->Step(action);
-    NeuralBotStepResult result;
-    result.done = true;
-    result.info = "Bot not found: " + botName;
-    return result;
+    PendingStep ps;
+    ps.botName = botName;
+    ps.action = action;
+    auto future = ps.promise.get_future();
+    {
+        std::lock_guard<std::mutex> lock(_queueMutex);
+        _pendingSteps.push_back(std::move(ps));
+    }
+    return future.get();
 }
 
 NeuralBotObservation NeuralBotMgr::Reset(std::string const& botName)
 {
-    auto it = _instances.find(botName);
-    if (it != _instances.end())
-        return it->second->Reset();
-    return NeuralBotObservation{};
+    PendingReset pr;
+    pr.botName = botName;
+    auto future = pr.promise.get_future();
+    {
+        std::lock_guard<std::mutex> lock(_queueMutex);
+        _pendingResets.push_back(std::move(pr));
+    }
+    return future.get();
+}
+
+void NeuralBotMgr::ProcessPendingRequests()
+{
+    std::vector<PendingStep> steps;
+    std::vector<PendingReset> resets;
+    {
+        std::lock_guard<std::mutex> lock(_queueMutex);
+        steps = std::move(_pendingSteps);
+        resets = std::move(_pendingResets);
+        _pendingSteps.clear();
+        _pendingResets.clear();
+    }
+
+    for (auto& ps : steps)
+    {
+        NeuralBotStepResult result;
+        auto it = _instances.find(ps.botName);
+        if (it != _instances.end())
+            result = it->second->Step(ps.action);
+        else
+        {
+            result.done = true;
+            result.info = "Bot not found: " + ps.botName;
+        }
+        ps.promise.set_value(std::move(result));
+    }
+
+    for (auto& pr : resets)
+    {
+        NeuralBotObservation obs;
+        auto it = _instances.find(pr.botName);
+        if (it != _instances.end())
+            obs = it->second->Reset();
+        pr.promise.set_value(std::move(obs));
+    }
 }
 
 NeuralBotInstance* NeuralBotMgr::GetInstance(std::string const& botName)

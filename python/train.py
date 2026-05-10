@@ -82,7 +82,7 @@ def main():
     print(f"Creating SubprocVecEnv with {len(BOT_NAMES)} bots...")
     env = SubprocVecEnv([make_env(name, host, port) for name in BOT_NAMES])
 
-    obs, infos = env.reset()
+    obs = env.reset()
 
     print(f"Training PPO for {timesteps} timesteps using {len(BOT_NAMES)} parallel envs...")
     print(f"Episode stats: {stats_path}")

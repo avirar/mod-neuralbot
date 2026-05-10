@@ -17,6 +17,7 @@
 #include <map>
 #include <array>
 #include <string>
+#include <future>
 
 class NeuralBotMgr
 {
@@ -50,6 +51,7 @@ private:
     NeuralBotMgr& operator=(NeuralBotMgr const&) = delete;
 
     void DoPendingLogin();
+    void ProcessPendingRequests();
 
     bool _enabled = false;
 
@@ -67,6 +69,21 @@ private:
     size_t _pendingLoginIndex = 0;
     uint32 _loginTimer = 0;
     bool _loginScheduled = false;
+
+    struct PendingStep
+    {
+        std::string botName;
+        uint32 action;
+        std::promise<NeuralBotStepResult> promise;
+    };
+    struct PendingReset
+    {
+        std::string botName;
+        std::promise<NeuralBotObservation> promise;
+    };
+    std::mutex _queueMutex;
+    std::vector<PendingStep> _pendingSteps;
+    std::vector<PendingReset> _pendingResets;
 };
 
 #define sNeuralBotMgr NeuralBotMgr::instance()

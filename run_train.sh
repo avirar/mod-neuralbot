@@ -12,7 +12,7 @@ fi
 # Wait for bots to be logged in
 echo "Waiting for bots to log in..."
 for i in $(seq 1 60); do
-    COUNT=$(echo "BOTS" | timeout 2 nc 127.0.0.1 9000 2>/dev/null | wc -w)
+    COUNT=$(echo "BOTS" | nc -q 2 -w 2 127.0.0.1 9000 2>/dev/null | wc -w)
     if [ "$COUNT" -ge 20 ]; then
         echo "All $((COUNT - 1)) bots ready after ${i}s"
         break
