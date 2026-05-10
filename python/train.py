@@ -131,26 +131,36 @@ def main():
         device="auto",
     )
 
-    # Loop with periodic save to survive SubprocVecEnv crashes on Python 3.14
+    # Training loop: recreate env each chunk to survive SubprocVecEnv worker deaths
     steps_per_chunk = 200000
     total_done = 0
     checkpoint_num = 0
     while total_done < timesteps:
         remaining = min(steps_per_chunk, timesteps - total_done)
+        steps_before = model.num_timesteps
         try:
             model.learn(
                 total_timesteps=remaining,
                 callback=[checkpoint_callback, stats_callback],
                 reset_num_timesteps=(total_done == 0),
             )
-            total_done += remaining
-            checkpoint_num += 1
-            model_path_ckpt = f"{model_path}_ckpt_{checkpoint_num}"
-            model.save(model_path_ckpt)
-            print(f"Checkpoint {checkpoint_num} saved to {model_path_ckpt} ({total_done}/{timesteps} steps)")
-        except Exception as e:
-            print(f"Training chunk failed: {e}, restarting...")
-            continue
+        except BaseException as e:
+            print(f"  Chunk error ({type(e).__name__}): {e}")
+        steps_taken = model.num_timesteps - steps_before
+        total_done += steps_taken
+        checkpoint_num += 1
+        model_path_ckpt = f"{model_path}_ckpt_{checkpoint_num}"
+        model.save(model_path_ckpt)
+        print(f"  Ckpt {checkpoint_num}: {steps_taken} steps ({total_done}/{timesteps})")
+
+        # Always recreate env to avoid stale workers
+        try:
+            env.close()
+        except:
+            pass
+        env = SubprocVecEnv([make_env(name, host, port) for name in BOT_NAMES])
+        model.set_env(env)
+        obs = env.reset()
 
     model.save(model_path)
     print(f"Model saved to {model_path}")
