@@ -52,12 +52,17 @@ private:
 
     void LoginAllBots();
     bool ProcessPendingRequests();
+    void ProcessSharedMemoryStep();
 
     bool _enabled = false;
     bool _autoQuest = false;
 
     std::map<std::string, NeuralBotInstance*> _instances;
     std::map<ObjectGuid, NeuralBotInstance*> _instancesByGuid;
+
+    // Shared memory: ordered bot access
+    std::vector<std::string> _botOrder;
+    uint32_t _botCount = 0;
 
     struct PendingLogin
     {

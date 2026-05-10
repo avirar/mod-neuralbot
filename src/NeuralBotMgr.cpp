@@ -1,6 +1,7 @@
 #include "NeuralBotMgr.h"
 #include "NeuralBotFactory.h"
 #include "NeuralBotCommon.h"
+#include "NeuralBotSharedMem.h"
 #include "CharacterCache.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
@@ -34,12 +35,24 @@ void NeuralBotMgr::Initialize()
 
     NeuralBotFactory::CreateAccounts();
 
-    LOG_INFO("module.neuralbot", "NeuralBot manager initialized. Target: {} bots", NeuralBotFactory::GetBotTemplates().size());
+    auto templates = NeuralBotFactory::GetBotTemplates();
+    _botCount = static_cast<uint32_t>(templates.size());
+    _botOrder.reserve(_botCount);
+    for (auto const& t : templates)
+        _botOrder.push_back(t.name);
+
+    if (!sNeuralBotShm.Create(_botCount))
+        LOG_ERROR("module.neuralbot", "Shared memory initialization failed — falling back to TCP");
+    else
+        LOG_INFO("module.neuralbot", "Shared memory ready: {} bots, {:.1f} KB", _botCount, SHM_TOTAL_SIZE / 1024.0f);
+
+    LOG_INFO("module.neuralbot", "NeuralBot manager initialized. Target: {} bots", _botCount);
 }
 
 void NeuralBotMgr::Shutdown()
 {
     _enabled = false;
+    sNeuralBotShm.Destroy();
     for (auto& [name, inst] : _instances)
         delete inst;
     _instances.clear();
@@ -79,8 +92,61 @@ void NeuralBotMgr::OnWorldUpdate(uint32 /*diff*/)
     {
     }
 
+    ProcessSharedMemoryStep();
+
     for (auto& [name, inst] : _instances)
         inst->ProcessBotPackets();
+}
+
+void NeuralBotMgr::ProcessSharedMemoryStep()
+{
+    if (!sNeuralBotShm.IsCreated())
+        return;
+
+    uint8_t actions[SHM_MAX_BOTS];
+    if (!sNeuralBotShm.TryReadActions(actions, _botCount))
+        return;
+
+    static float obsFlat[SHM_MAX_BOTS * SHM_OBS_PER_BOT];
+    static uint8_t dones[SHM_MAX_BOTS];
+
+    for (uint32_t i = 0; i < _botCount; ++i)
+    {
+        float* botObs = obsFlat + i * SHM_OBS_PER_BOT;
+
+        auto it = _instances.find(_botOrder[i]);
+        if (it != _instances.end())
+        {
+            NeuralBotStepResult result = it->second->Step(static_cast<uint32>(actions[i]));
+
+            result.observation.ToFloatArray(botObs);
+            botObs[80] = result.reward.total;
+
+            botObs[81] = result.reward.xpDelta;
+            botObs[82] = result.reward.damageTaken;
+            botObs[83] = result.reward.killReward;
+            botObs[84] = result.reward.deathPenalty;
+            botObs[85] = result.reward.lootReward;
+            botObs[86] = result.reward.questAccepted;
+            botObs[87] = result.reward.questCompleted;
+            botObs[88] = result.reward.questProximity;
+            botObs[89] = result.reward.questProgress;
+            botObs[90] = result.reward.enemyProximity;
+            botObs[91] = result.reward.targetAcquired;
+            botObs[92] = result.reward.timePenalty;
+
+            dones[i] = result.done ? 1 : 0;
+        }
+        else
+        {
+            std::memset(botObs, 0, SHM_OBS_BYTES);
+            dones[i] = 1;
+            botObs[80] = -1.0f;
+        }
+    }
+
+    sNeuralBotShm.WriteObservations(obsFlat, dones, _botCount);
+    sNeuralBotShm.SignalObservationsReady();
 }
 
 void NeuralBotMgr::LoginAllBots()
@@ -158,12 +224,10 @@ void NeuralBotMgr::OnPlayerLogin(Player* player)
     if (!_enabled || !player || !player->GetSession()->IsBot())
         return;
 
-    // Check if this is one of our bots (not registered yet)
     std::string name = player->GetName();
     if (_instances.find(name) != _instances.end())
-        return; // already registered
+        return;
 
-    // Create a new instance for this pre-logged-in bot
     NeuralBotInstance* inst = new NeuralBotInstance(player, player->GetSession());
     _instances[name] = inst;
     _instancesByGuid[player->GetGUID()] = inst;
@@ -198,7 +262,6 @@ void NeuralBotMgr::OnPlayerAfterUpdate(Player* player, uint32 /*diff*/)
 {
     if (!_enabled || !player) return;
 
-    // Process bot packets for this player (called per-player from world thread)
     auto it = _instancesByGuid.find(player->GetGUID());
     if (it != _instancesByGuid.end())
         it->second->ProcessBotPackets();
@@ -291,8 +354,5 @@ NeuralBotInstance* NeuralBotMgr::GetInstance(std::string const& botName)
 
 std::vector<std::string> NeuralBotMgr::GetBotNames() const
 {
-    std::vector<std::string> names;
-    for (auto const& [name, inst] : _instances)
-        names.push_back(name);
-    return names;
+    return _botOrder;
 }
