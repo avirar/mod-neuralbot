@@ -10,7 +10,7 @@ from wow_neuralbot_env import WoWNeuralBotEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.vec_env import SubprocVecEnv
-from neuralbot_client import ACTION_COUNT, BOT_NAMES
+from neuralbot_client import ACTION_COUNT, BOT_NAMES, NUM_BOTS
 
 
 class EpisodeStatsCallback(BaseCallback):
@@ -20,24 +20,29 @@ class EpisodeStatsCallback(BaseCallback):
         self.episode_num = 0
         self.rows = []
         self.current_actions = np.zeros(ACTION_COUNT, dtype=np.int32)
+        self._ep_rewards = [0.0] * NUM_BOTS
+        self._ep_lengths = [0] * NUM_BOTS
 
     def _on_step(self) -> bool:
         dones = self.locals.get("dones", [])
         actions = self.locals.get("actions", [])
+        rewards = self.locals.get("rewards", [])
         infos = self.locals.get("infos", [])
 
         for i in range(len(dones)):
             if i < len(actions):
                 self.current_actions[int(actions[i])] += 1
+            if i < len(rewards):
+                self._ep_rewards[i] += float(rewards[i])
+                self._ep_lengths[i] += 1
 
             if dones[i] and i < len(infos):
-                ep_info = infos[i].get("episode", {})
                 rc = infos[i].get("reward_components", {})
 
                 row = {
                     "episode": self.episode_num,
-                    "reward": round(ep_info.get("r", 0.0), 4),
-                    "length": ep_info.get("l", 0),
+                    "reward": round(self._ep_rewards[i], 4),
+                    "length": self._ep_lengths[i],
                     "xp": round(rc.get("xp", 0.0), 4),
                     "kill": round(rc.get("kill", 0.0), 4),
                     "death": round(rc.get("death", 0.0), 4),
@@ -52,6 +57,8 @@ class EpisodeStatsCallback(BaseCallback):
                 self.rows.append(row)
                 self.episode_num += 1
                 self.current_actions = np.zeros(ACTION_COUNT, dtype=np.int32)
+                self._ep_rewards[i] = 0.0
+                self._ep_lengths[i] = 0
                 self._write_csv()
 
         return True
@@ -75,13 +82,12 @@ def make_env(bot_name, host, port):
 def main():
     host = os.environ.get("NEURALBOT_HOST", "127.0.0.1")
     port = int(os.environ.get("NEURALBOT_PORT", "9000"))
-    timesteps = int(os.environ.get("NEURALBOT_TIMESTEPS", "5000000"))
+    timesteps = int(os.environ.get("NEURALBOT_TIMESTEPS", "20000000"))
     model_path = os.environ.get("NEURALBOT_MODEL", "wow_neuralbot_model")
     stats_path = model_path + "_episodes.csv"
 
     print(f"Creating SubprocVecEnv with {len(BOT_NAMES)} bots...")
     env = SubprocVecEnv([make_env(name, host, port) for name in BOT_NAMES])
-
     obs = env.reset()
 
     print(f"Training PPO for {timesteps} timesteps using {len(BOT_NAMES)} parallel envs...")
@@ -99,21 +105,36 @@ def main():
         "MlpPolicy",
         env,
         verbose=1,
-        n_steps=64,
-        batch_size=128,
+        n_steps=512,
+        batch_size=256,
         learning_rate=3e-4,
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.01,
+        ent_coef=0.02,
         device="cpu",
     )
 
-    model.learn(
-        total_timesteps=timesteps,
-        callback=[checkpoint_callback, stats_callback],
-        progress_bar=True,
-    )
+    # Loop with periodic save to survive SubprocVecEnv crashes on Python 3.14
+    steps_per_chunk = 200000
+    total_done = 0
+    checkpoint_num = 0
+    while total_done < timesteps:
+        remaining = min(steps_per_chunk, timesteps - total_done)
+        try:
+            model.learn(
+                total_timesteps=remaining,
+                callback=[checkpoint_callback, stats_callback],
+                reset_num_timesteps=(total_done == 0),
+            )
+            total_done += remaining
+            checkpoint_num += 1
+            model_path_ckpt = f"{model_path}_ckpt_{checkpoint_num}"
+            model.save(model_path_ckpt)
+            print(f"Checkpoint {checkpoint_num} saved to {model_path_ckpt} ({total_done}/{timesteps} steps)")
+        except Exception as e:
+            print(f"Training chunk failed: {e}, restarting...")
+            continue
 
     model.save(model_path)
     print(f"Model saved to {model_path}")

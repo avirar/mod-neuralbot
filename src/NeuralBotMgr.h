@@ -51,9 +51,10 @@ private:
     NeuralBotMgr& operator=(NeuralBotMgr const&) = delete;
 
     void DoPendingLogin();
-    void ProcessPendingRequests();
+    bool ProcessPendingRequests();
 
     bool _enabled = false;
+    bool _autoQuest = false;
 
     std::map<std::string, NeuralBotInstance*> _instances;
     std::map<ObjectGuid, NeuralBotInstance*> _instancesByGuid;

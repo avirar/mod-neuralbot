@@ -36,6 +36,10 @@ public:
     void ProcessBotPackets();
     void OnWorldUpdate(uint32 diff);
 
+    void SetAutoQuest(bool enabled) { _autoQuestEnabled = enabled; }
+    void AutoAcceptQuests();
+    uint32 GetQuestsAutoCompleted() const { return _questAutoCompleted; }
+
     Player* GetPlayer() const { return _player; }
     WorldSession* GetSession() const { return _session; }
     bool IsReady() const { return _ready; }
@@ -50,6 +54,7 @@ private:
     void InjectCMSG(uint16 opcode, std::function<void(WorldPacket&)> filler);
     float ComputeReward(NeuralBotReward& out);
     void ResetRewardTracking();
+    void AutoCompleteQuests();
 
     Player* _player = nullptr;
     WorldSession* _session = nullptr;
@@ -73,6 +78,10 @@ private:
     std::map<uint32, std::array<uint16, 4>> _prevObjectiveCounts;
     float _cachedNearestQGDist = 0.0f;
     float _prevQGDist = 0.0f;
+
+    bool _autoQuestEnabled = false;
+    uint32 _questAutoCompleted = 0;
+    uint32 _stepsWithoutReward = 0;
 };
 
 #endif

@@ -30,6 +30,8 @@ void NeuralBotMgr::Initialize()
 
     LOG_INFO("module.neuralbot", "NeuralBot manager initializing...");
 
+    _autoQuest = sConfigMgr->GetOption<bool>("NeuralBot.AutoQuest", true);
+
     NeuralBotFactory::CreateAccounts();
 
     LOG_INFO("module.neuralbot", "NeuralBot manager initialized. Target: {} bots", NeuralBotFactory::GetBotTemplates().size());
@@ -124,7 +126,10 @@ void NeuralBotMgr::OnWorldUpdate(uint32 diff)
     }
 
     // Process queued step/reset requests on the world thread
-    ProcessPendingRequests();
+    // Loop to drain requests that arrive between world ticks
+    while (ProcessPendingRequests())
+    {
+    }
 
     // Heartbeat for already-logged-in bots
     for (auto& [name, inst] : _instances)
@@ -188,6 +193,12 @@ void NeuralBotMgr::DoPendingLogin()
             _instances[name] = inst;
             _instancesByGuid[player->GetGUID()] = inst;
 
+            if (_autoQuest)
+            {
+                inst->SetAutoQuest(true);
+                inst->AutoAcceptQuests();
+            }
+
             LOG_INFO("module.neuralbot", "Bot '{}' logged in (GUID:{} Level:{} Zone:{})",
                 name, player->GetGUID().GetCounter(), uint32(player->GetLevel()), player->GetZoneId());
 
@@ -209,6 +220,12 @@ void NeuralBotMgr::OnPlayerLogin(Player* player)
     NeuralBotInstance* inst = new NeuralBotInstance(player, player->GetSession());
     _instances[name] = inst;
     _instancesByGuid[player->GetGUID()] = inst;
+
+    if (_autoQuest)
+    {
+        inst->SetAutoQuest(true);
+        inst->AutoAcceptQuests();
+    }
 
     LOG_INFO("module.neuralbot", "Bot '{}' registered via OnPlayerLogin (GUID:{})",
         name, player->GetGUID().GetCounter());
@@ -280,12 +297,14 @@ NeuralBotObservation NeuralBotMgr::Reset(std::string const& botName)
     return future.get();
 }
 
-void NeuralBotMgr::ProcessPendingRequests()
+bool NeuralBotMgr::ProcessPendingRequests()
 {
     std::vector<PendingStep> steps;
     std::vector<PendingReset> resets;
     {
         std::lock_guard<std::mutex> lock(_queueMutex);
+        if (_pendingSteps.empty() && _pendingResets.empty())
+            return false;
         steps = std::move(_pendingSteps);
         resets = std::move(_pendingResets);
         _pendingSteps.clear();
@@ -314,6 +333,7 @@ void NeuralBotMgr::ProcessPendingRequests()
             obs = it->second->Reset();
         pr.promise.set_value(std::move(obs));
     }
+    return true;
 }
 
 NeuralBotInstance* NeuralBotMgr::GetInstance(std::string const& botName)

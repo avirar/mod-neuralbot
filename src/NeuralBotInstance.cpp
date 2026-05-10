@@ -98,7 +98,7 @@ void NeuralBotInstance::RecordOpcode(uint16 opcode)
 {
     std::lock_guard<std::mutex> lock(_opcodeMutex);
     _opcodeHistory.push_back(opcode);
-    if (_opcodeHistory.size() > OBS_OPCODE_HISTORY_SIZE)
+    if (_opcodeHistory.size() > 64)
         _opcodeHistory.pop_front();
 }
 
@@ -322,14 +322,6 @@ void NeuralBotInstance::BuildObservationInto(NeuralBotObservation& obs)
         obs.questState[8] = topProgress[2];
         obs.questState[9] = topProgress[3];
     }
-
-    // --- Opcode history ---
-    {
-        std::lock_guard<std::mutex> lock(_opcodeMutex);
-        size_t hSize = _opcodeHistory.size();
-        for (size_t i = 0; i < OBS_OPCODE_HISTORY_SIZE; ++i)
-            obs.opcodeHistory[i] = i < hSize ? static_cast<int32>(_opcodeHistory[hSize - 1 - i]) : 0;
-    }
 }
 
 float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
@@ -346,7 +338,7 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     out.xpDelta = xpReward;
     _prevXp = curXp;
 
-    float killReward = _killCount * 1.0f;
+    float killReward = _killCount * 5.0f;
     reward += killReward;
     out.killReward = killReward;
     _killCount = 0.0f;
@@ -476,10 +468,20 @@ void NeuralBotInstance::ResetRewardTracking()
     _diedThisStep = false;
     _stepCount = 0;
     _prevTrackedQuests.clear();
+    // Prime with current quests so auto-accepted ones don't count as new each episode
+    if (_player)
+        for (uint32 slot = 0; slot < 25; ++slot)
+        {
+            uint32 qid = _player->GetQuestSlotQuestId(slot);
+            if (qid)
+                _prevTrackedQuests.insert(qid);
+        }
     _prevQuestStatus.clear();
     _prevObjectiveCounts.clear();
     _cachedNearestQGDist = 0.0f;
     _prevQGDist = 0.0f;
+    _questAutoCompleted = 0;
+    _stepsWithoutReward = 0;
 }
 
 void NeuralBotInstance::ExecuteAction(uint32 action)
@@ -517,47 +519,17 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         break;
     }
     case ACTION_MOVE_BACKWARD:
-    case ACTION_MOVE_LEFT:
-    case ACTION_MOVE_RIGHT:
-    case ACTION_MOVE_FORWARD_LEFT:
-    case ACTION_MOVE_FORWARD_RIGHT:
-    case ACTION_MOVE_BACKWARD_LEFT:
-    case ACTION_MOVE_BACKWARD_RIGHT:
     {
-        float dx = 0.0f, dy = 0.0f;
         float dist = 3.0f;
         float o = bot->GetOrientation();
-        if (action == ACTION_MOVE_BACKWARD || action == ACTION_MOVE_BACKWARD_LEFT || action == ACTION_MOVE_BACKWARD_RIGHT)
-        {
-            dx -= cos(o) * dist;
-            dy -= std::sin(o) * dist;
-        }
-        if (action == ACTION_MOVE_LEFT || action == ACTION_MOVE_FORWARD_LEFT || action == ACTION_MOVE_BACKWARD_LEFT)
-        {
-            float so = o + static_cast<float>(M_PI) * 0.5f;
-            dx += cos(so) * dist;
-            dy += std::sin(so) * dist;
-        }
-        if (action == ACTION_MOVE_RIGHT || action == ACTION_MOVE_FORWARD_RIGHT || action == ACTION_MOVE_BACKWARD_RIGHT)
-        {
-            float so = o - static_cast<float>(M_PI) * 0.5f;
-            dx += cos(so) * dist;
-            dy += std::sin(so) * dist;
-        }
-        if (action == ACTION_MOVE_FORWARD_LEFT || action == ACTION_MOVE_FORWARD_RIGHT)
-        {
-            dx += cos(o) * dist;
-            dy += std::sin(o) * dist;
-        }
+        float dx = -cos(o) * dist;
+        float dy = -std::sin(o) * dist;
         float x = bot->GetPositionX() + dx;
         float y = bot->GetPositionY() + dy;
         float z = bot->GetPositionZ();
         bot->GetMotionMaster()->MovePoint(bot->GetMapId(), x, y, z, FORCED_MOVEMENT_RUN, false);
         break;
     }
-    case ACTION_STOP_MOVE:
-        bot->GetMotionMaster()->Clear();
-        break;
     case ACTION_TURN_LEFT:
     {
         float o = bot->GetOrientation() + 0.3f;
@@ -574,6 +546,9 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         bot->SetOrientation(o);
         break;
     }
+    case ACTION_STOP_MOVE:
+        bot->GetMotionMaster()->Clear();
+        break;
     case ACTION_TARGET_NEAREST_ENEMY:
     {
         if (bot->IsInWorld())
@@ -596,39 +571,12 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         }
         break;
     }
-    case ACTION_TARGET_BY_INDEX_0:
-    case ACTION_TARGET_BY_INDEX_1:
-    case ACTION_TARGET_BY_INDEX_2:
-    case ACTION_TARGET_BY_INDEX_3:
-    {
-        size_t idx = action - ACTION_TARGET_BY_INDEX_0;
-        if (bot->IsInWorld())
-        {
-            float range = 40.0f;
-            std::list<Unit*> targets;
-            Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, range);
-            Acore::UnitListSearcher<decltype(check)> searcher(bot, targets, check);
-            Cell::VisitObjects(bot, searcher, range);
-            std::vector<std::pair<Unit*, float>> sorted;
-            for (Unit* u : targets)
-                if (u && u->IsAlive())
-                    sorted.push_back({u, bot->GetDistance(u)});
-            std::sort(sorted.begin(), sorted.end(),
-                [](auto const& a, auto const& b) { return a.second < b.second; });
-            if (idx < sorted.size())
-                InjectCMSG(CMSG_SET_SELECTION, [sorted, idx](WorldPacket& pkt) { pkt << sorted[idx].first->GetGUID(); });
-        }
-        break;
-    }
     case ACTION_ATTACK_START:
     {
         if (Unit* target = bot->GetSelectedUnit())
             InjectCMSG(CMSG_ATTACKSWING, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
         break;
     }
-    case ACTION_ATTACK_STOP:
-        InjectCMSG(CMSG_ATTACKSTOP, nullptr);
-        break;
     case ACTION_CAST_SPELL_1:
     case ACTION_CAST_SPELL_2:
     case ACTION_CAST_SPELL_3:
@@ -670,17 +618,6 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         }
         break;
     }
-    case ACTION_INTERACT_LOOT:
-    {
-        if (Unit* target = bot->GetSelectedUnit())
-            if (Creature* creature = target->ToCreature())
-                if (creature->isDead())
-                    InjectCMSG(CMSG_LOOT, [creature](WorldPacket& pkt) { pkt << creature->GetGUID(); });
-        break;
-    }
-    case ACTION_STAND_UP:
-        bot->SetStandState(UNIT_STAND_STATE_STAND);
-        break;
     case ACTION_INTERACT_NPC:
     {
         Unit* target = bot->GetSelectedUnit();
@@ -697,12 +634,9 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
             {
                 Quest const* quest = sObjectMgr->GetQuestTemplate(it->second);
                 if (quest && bot->CanTakeQuest(quest, false))
-                {
-                    uint32 questId = it->second;
-                    InjectCMSG(CMSG_QUESTGIVER_ACCEPT_QUEST, [guid, questId](WorldPacket& pkt) {
+                    InjectCMSG(CMSG_QUESTGIVER_ACCEPT_QUEST, [guid, questId = it->second](WorldPacket& pkt) {
                         pkt << guid << uint32(questId) << uint32(0);
                     });
-                }
             }
         }
         break;
@@ -787,12 +721,84 @@ NeuralBotStepResult NeuralBotInstance::Step(uint32 action)
 
     ExecuteAction(action);
     _stepCount++;
+
+    // Auto-complete quests if enabled (agent still gets reward signal)
+    if (_autoQuestEnabled)
+        AutoCompleteQuests();
+
     result.reward.total = ComputeReward(result.reward);
     BuildObservationInto(result.observation);
-    result.done = (_stepCount >= _maxSteps) || _diedThisStep || !_player->IsAlive();
+
+    // Idle termination: if agent hasn't earned reward in 50 steps, end episode
+    if (result.reward.total > 0.01f)
+        _stepsWithoutReward = 0;
+    else
+        _stepsWithoutReward++;
+
+    bool timedOut = _stepCount >= _maxSteps;
+    bool idle = _stepsWithoutReward >= 50;
+
+    result.done = timedOut || _diedThisStep || !_player->IsAlive() || idle;
     if (result.done)
-        result.info = _diedThisStep ? "died" : "max_steps";
+        result.info = _diedThisStep ? "died" : (idle ? "idle" : "max_steps");
     return result;
+}
+
+void NeuralBotInstance::AutoAcceptQuests()
+{
+    Player* bot = _player;
+    if (!bot || !bot->IsInWorld()) return;
+
+    float range = 20.0f;
+    std::list<Unit*> friendlies;
+    Acore::AnyFriendlyUnitInObjectRangeCheck check(bot, bot, range);
+    Acore::UnitListSearcher<decltype(check)> searcher(bot, friendlies, check);
+    Cell::VisitObjects(bot, searcher, range);
+
+    uint32 accepted = 0;
+    for (Unit* u : friendlies)
+    {
+        Creature* c = u->ToCreature();
+        if (!c) continue;
+        auto bounds = sObjectMgr->GetCreatureQuestRelationBounds(c->GetEntry());
+        for (auto it = bounds.first; it != bounds.second; ++it)
+        {
+            uint32 questId = it->second;
+            Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+            if (!quest) continue;
+            if (bot->CanTakeQuest(quest, false) && bot->GetQuestStatus(questId) == QUEST_STATUS_NONE)
+            {
+                bot->AddQuest(quest, c);
+                accepted++;
+                LOG_INFO("module.neuralbot", "Bot '{}' auto-accepted quest {} ({}): {}",
+                    bot->GetName(), questId, quest->GetTitle().c_str(), quest->GetTitle().c_str());
+            }
+        }
+    }
+    if (accepted > 0)
+        LOG_INFO("module.neuralbot", "Bot '{}' auto-accepted {} quest(s)", bot->GetName(), accepted);
+}
+
+void NeuralBotInstance::AutoCompleteQuests()
+{
+    Player* bot = _player;
+    if (!bot) return;
+
+    for (uint32 slot = 0; slot < 25; ++slot)
+    {
+        uint32 qid = bot->GetQuestSlotQuestId(slot);
+        if (!qid) continue;
+        if (bot->GetQuestStatus(qid) == QUEST_STATUS_COMPLETE)
+        {
+            Quest const* quest = sObjectMgr->GetQuestTemplate(qid);
+            if (!quest) continue;
+            bot->RewardQuest(quest, 0, bot, false);
+            _questAutoCompleted++;
+            LOG_INFO("module.neuralbot", "Bot '{}' auto-completed quest {} ({})",
+                bot->GetName(), qid, quest->GetTitle().c_str());
+            break; // Only one per step
+        }
+    }
 }
 
 NeuralBotObservation NeuralBotInstance::Reset()

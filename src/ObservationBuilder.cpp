@@ -21,7 +21,4 @@ void NeuralBotObservation::ToFloatArray(float* out) const
     std::memcpy(out + offset, combatState, OBS_COMBAT_STATE_SIZE * sizeof(float));
     offset += OBS_COMBAT_STATE_SIZE;
     std::memcpy(out + offset, questState, OBS_QUEST_STATE_SIZE * sizeof(float));
-    offset += OBS_QUEST_STATE_SIZE;
-    for (size_t i = 0; i < OBS_OPCODE_HISTORY_SIZE; ++i)
-        out[offset + i] = static_cast<float>(opcodeHistory[i]);
 }

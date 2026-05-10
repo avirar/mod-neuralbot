@@ -24,11 +24,13 @@ struct CreatedCharacterInfo
 class NeuralBotFactory
 {
 public:
+    static std::string GenerateBotName(uint32 index);
     static std::vector<BotCharacterTemplate> GetBotTemplates();
     static bool CreateAccounts();
     static bool CreateCharacters();
     static void CleanupBots();
     static std::vector<CreatedCharacterInfo> const& GetCreatedCharacters();
+    static uint32 GetBotCount();
 };
 
 #endif

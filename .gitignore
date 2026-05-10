@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 *.pth
 wandb/
+python/logs/
+*.zip
+*_episodes.csv
+__pycache__/
+

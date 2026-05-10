@@ -5,45 +5,96 @@
 #include "ObjectMgr.h"
 #include "AccountMgr.h"
 #include "DatabaseEnv.h"
+#include "Config.h"
 #include "Log.h"
 
 #include <vector>
 #include <string>
 #include <thread>
+#include <tuple>
 
 static std::vector<CreatedCharacterInfo> s_createdCharacters;
 
+// All valid WoW race/class starter combos (letters-only names)
+static const std::pair<uint8, uint8> STARTER_COMBOS[] = {
+    // Alliance (5 races)
+    {RACE_HUMAN,      CLASS_WARRIOR},
+    {RACE_HUMAN,      CLASS_PRIEST},
+    {RACE_HUMAN,      CLASS_MAGE},
+    {RACE_HUMAN,      CLASS_PALADIN},
+    {RACE_HUMAN,      CLASS_WARLOCK},
+    {RACE_DWARF,      CLASS_HUNTER},
+    {RACE_DWARF,      CLASS_PALADIN},
+    {RACE_DWARF,      CLASS_ROGUE},
+    {RACE_DWARF,      CLASS_PRIEST},
+    {RACE_GNOME,      CLASS_ROGUE},
+    {RACE_GNOME,      CLASS_MAGE},
+    {RACE_GNOME,      CLASS_WARRIOR},
+    {RACE_NIGHTELF,   CLASS_DRUID},
+    {RACE_NIGHTELF,   CLASS_WARRIOR},
+    {RACE_NIGHTELF,   CLASS_HUNTER},
+    {RACE_NIGHTELF,   CLASS_ROGUE},
+    {RACE_DRAENEI,    CLASS_SHAMAN},
+    {RACE_DRAENEI,    CLASS_PALADIN},
+    {RACE_DRAENEI,    CLASS_WARRIOR},
+    {RACE_DRAENEI,    CLASS_MAGE},
+    // Horde (5 races)
+    {RACE_ORC,        CLASS_WARRIOR},
+    {RACE_ORC,        CLASS_SHAMAN},
+    {RACE_ORC,        CLASS_HUNTER},
+    {RACE_ORC,        CLASS_ROGUE},
+    {RACE_TROLL,      CLASS_HUNTER},
+    {RACE_TROLL,      CLASS_MAGE},
+    {RACE_TROLL,      CLASS_PRIEST},
+    {RACE_TAUREN,     CLASS_WARRIOR},
+    {RACE_TAUREN,     CLASS_DRUID},
+    {RACE_TAUREN,     CLASS_SHAMAN},
+    {RACE_TAUREN,     CLASS_HUNTER},
+    {RACE_UNDEAD_PLAYER, CLASS_ROGUE},
+    {RACE_UNDEAD_PLAYER, CLASS_PRIEST},
+    {RACE_UNDEAD_PLAYER, CLASS_WARRIOR},
+    {RACE_UNDEAD_PLAYER, CLASS_MAGE},
+    {RACE_BLOODELF,   CLASS_WARLOCK},
+    {RACE_BLOODELF,   CLASS_PALADIN},
+    {RACE_BLOODELF,   CLASS_HUNTER},
+    {RACE_BLOODELF,   CLASS_MAGE},
+};
+constexpr size_t NUM_COMBOS = sizeof(STARTER_COMBOS) / sizeof(STARTER_COMBOS[0]);
+
+uint32 NeuralBotFactory::GetBotCount()
+{
+    return sConfigMgr->GetOption<uint32>("NeuralBot.BotCount", 20);
+}
+
+std::string NeuralBotFactory::GenerateBotName(uint32 index)
+{
+    if (index < 26)
+        return std::string("Neuralbot") + static_cast<char>('A' + index);
+    uint32 i = index - 26;
+    char first  = static_cast<char>('A' + i / 26);
+    char second = static_cast<char>('A' + i % 26);
+    return std::string("Neuralbot") + first + second;
+}
+
 std::vector<BotCharacterTemplate> NeuralBotFactory::GetBotTemplates()
 {
-    return {
-        // Account nbot0: Alliance
-        {"NeuralbotA",  RACE_HUMAN,      CLASS_WARRIOR,  GENDER_MALE},
-        {"NeuralbotB",  RACE_HUMAN,      CLASS_PRIEST,   GENDER_FEMALE},
-        {"NeuralbotC",  RACE_HUMAN,      CLASS_MAGE,     GENDER_MALE},
-        {"NeuralbotD",  RACE_DWARF,      CLASS_HUNTER,   GENDER_MALE},
-        {"NeuralbotE",  RACE_GNOME,      CLASS_ROGUE,    GENDER_FEMALE},
-        {"NeuralbotF",  RACE_NIGHTELF,   CLASS_DRUID,    GENDER_FEMALE},
-        {"NeuralbotG",  RACE_NIGHTELF,   CLASS_WARRIOR,  GENDER_MALE},
-        {"NeuralbotH",  RACE_DRAENEI,    CLASS_SHAMAN,   GENDER_FEMALE},
-        {"NeuralbotI",  RACE_DRAENEI,    CLASS_PALADIN,  GENDER_MALE},
-        {"NeuralbotJ",  RACE_DWARF,      CLASS_PALADIN,  GENDER_FEMALE},
-        // Account nbot1: Horde
-        {"NeuralbotK",  RACE_ORC,        CLASS_WARRIOR,  GENDER_MALE},
-        {"NeuralbotL",  RACE_ORC,        CLASS_SHAMAN,   GENDER_MALE},
-        {"NeuralbotM",  RACE_TROLL,      CLASS_HUNTER,   GENDER_MALE},
-        {"NeuralbotN",  RACE_TAUREN,     CLASS_WARRIOR,  GENDER_MALE},
-        {"NeuralbotO",  RACE_TAUREN,     CLASS_DRUID,    GENDER_FEMALE},
-        {"NeuralbotP",  RACE_UNDEAD_PLAYER, CLASS_ROGUE, GENDER_MALE},
-        {"NeuralbotQ",  RACE_UNDEAD_PLAYER, CLASS_PRIEST,GENDER_FEMALE},
-        {"NeuralbotR",  RACE_BLOODELF,   CLASS_WARLOCK,  GENDER_MALE},
-        {"NeuralbotS",  RACE_TAUREN,     CLASS_SHAMAN,   GENDER_FEMALE},
-        {"NeuralbotT",  RACE_ORC,        CLASS_HUNTER,   GENDER_FEMALE},
-    };
+    uint32 botCount = GetBotCount();
+    std::vector<BotCharacterTemplate> templates;
+    templates.reserve(botCount);
+    for (uint32 i = 0; i < botCount; ++i)
+    {
+        auto const& combo = STARTER_COMBOS[i % NUM_COMBOS];
+        templates.push_back({GenerateBotName(i), combo.first, combo.second,
+                             static_cast<uint8>(i % 2 ? GENDER_FEMALE : GENDER_MALE)});
+    }
+    return templates;
 }
 
 bool NeuralBotFactory::CreateAccounts()
 {
-    for (uint32 i = 0; i < 2; ++i)
+    uint32 botCount = GetBotCount();
+    uint32 numAccounts = (botCount + 9) / 10; // 10 chars per account (WoW limit)
+    for (uint32 i = 0; i < numAccounts; ++i)
     {
         std::string name = "nbot" + std::to_string(i);
         uint32 existingId = sAccountMgr->GetId(name);
@@ -60,7 +111,6 @@ bool NeuralBotFactory::CreateAccounts()
         LOG_INFO("module.neuralbot", "Created account '{}'", name);
     }
 
-    // Wait for account creation to commit before CreateCharacters queries them
     while (LoginDatabase.QueueSize())
         std::this_thread::sleep_for(1s);
 
@@ -77,7 +127,7 @@ bool NeuralBotFactory::CreateCharacters()
         auto const& tpl = templates[i];
 
         // Determine which account this bot belongs to
-        uint32 accountIdx = i < 10 ? 0 : 1;
+        uint32 accountIdx = static_cast<uint32>(i) / 10;
         std::string accountName = "nbot" + std::to_string(accountIdx);
         uint32 accountId = sAccountMgr->GetId(accountName);
         if (!accountId)
