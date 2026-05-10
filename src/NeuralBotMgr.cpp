@@ -472,6 +472,92 @@ void NeuralBotMgr::BuildObservationInto(NeuralBotObservation& obs)
         obs.combatState[5 + i] = (spellId > 0 && !bot->HasSpellCooldown(spellId)) ? 1.0f : 0.0f;
     }
 
+    // --- Quest state ---
+    {
+        uint32 questCount = 0;
+        float bestProgress = 0.0f;
+        std::array<float, 4> topProgress = {0.0f, 0.0f, 0.0f, 0.0f};
+        bool hasCompletable = false;
+        float nearestQGDist = 0.0f;
+        float nearestQEDist = 0.0f;
+
+        // Scan quest log
+        for (uint32 slot = 0; slot < 25; ++slot)
+        {
+            uint32 qid = bot->GetQuestSlotQuestId(slot);
+            if (!qid)
+                continue;
+
+            questCount++;
+
+            QuestStatus status = bot->GetQuestStatus(qid);
+            if (status == QUEST_STATUS_COMPLETE)
+                hasCompletable = true;
+
+            Quest const* quest = sObjectMgr->GetQuestTemplate(qid);
+            if (quest)
+            {
+                uint32 curSum = 0;
+                uint32 reqSum = 0;
+                for (uint8 i = 0; i < 4; ++i)
+                {
+                    curSum += bot->GetQuestSlotCounter(slot, i);
+                    reqSum += quest->RequiredNpcOrGo[i];
+                }
+                float progress = reqSum > 0 ? std::min(static_cast<float>(curSum) / static_cast<float>(reqSum), 1.0f) : 0.0f;
+                if (progress > bestProgress)
+                    bestProgress = progress;
+
+                for (auto& p : topProgress)
+                    if (progress > p)
+                        std::swap(progress, p);
+            }
+        }
+
+        // Scan friendly NPCs for quest givers/enders
+        if (bot->IsInWorld())
+        {
+            float range = 40.0f;
+            std::list<Unit*> friendlies;
+            Acore::AnyFriendlyUnitInObjectRangeCheck friendlyCheck(bot, bot, range);
+            Acore::UnitListSearcher<decltype(friendlyCheck)> searcher(bot, friendlies, friendlyCheck);
+            Cell::VisitObjects(bot, searcher, range);
+
+            for (Unit* u : friendlies)
+            {
+                Creature* c = u->ToCreature();
+                if (!c)
+                    continue;
+
+                uint32 entry = c->GetEntry();
+                float dist = bot->GetDistance(c);
+
+                auto startBounds = sObjectMgr->GetCreatureQuestRelationBounds(entry);
+                if (startBounds.first != startBounds.second)
+                    if (nearestQGDist == 0.0f || dist < nearestQGDist)
+                        nearestQGDist = dist;
+
+                auto endBounds = sObjectMgr->GetCreatureQuestInvolvedRelationBounds(entry);
+                if (endBounds.first != endBounds.second)
+                    if (nearestQEDist == 0.0f || dist < nearestQEDist)
+                        nearestQEDist = dist;
+            }
+        }
+
+        _cachedNearestQGDist = nearestQGDist;
+
+        obs.questState[0] = static_cast<float>(questCount) / 25.0f;
+        obs.questState[1] = nearestQGDist > 0.0f ? std::min(nearestQGDist / 40.0f, 1.0f) : 1.0f;
+        obs.questState[2] = nearestQGDist > 0.0f && nearestQGDist <= 40.0f ? 1.0f : 0.0f;
+        obs.questState[3] = nearestQEDist > 0.0f ? std::min(nearestQEDist / 40.0f, 1.0f) : 1.0f;
+        obs.questState[4] = hasCompletable ? 1.0f : 0.0f;
+        obs.questState[5] = bestProgress;
+        obs.questState[6] = topProgress[0];
+        obs.questState[7] = topProgress[1];
+        obs.questState[8] = topProgress[2];
+        obs.questState[9] = topProgress[3];
+    }
+
     // --- Opcode history ---
     {
         std::lock_guard<std::mutex> lock(_opcodeMutex);
@@ -514,6 +600,74 @@ float NeuralBotMgr::ComputeReward()
         _diedThisStep = false;
     }
 
+    // --- Quest rewards ---
+    {
+        // Snapshot current quest state
+        std::set<uint32> curActive;
+        std::map<uint32, uint8> curStatus;
+        std::map<uint32, std::array<uint16, 4>> curCounters;
+
+        for (uint32 slot = 0; slot < 25; ++slot)
+        {
+            uint32 qid = bot->GetQuestSlotQuestId(slot);
+            if (!qid)
+                continue;
+
+            curActive.insert(qid);
+            curStatus[qid] = static_cast<uint8>(bot->GetQuestStatus(qid));
+
+            std::array<uint16, 4> counts = {
+                bot->GetQuestSlotCounter(slot, 0),
+                bot->GetQuestSlotCounter(slot, 1),
+                bot->GetQuestSlotCounter(slot, 2),
+                bot->GetQuestSlotCounter(slot, 3)
+            };
+            curCounters[qid] = counts;
+        }
+
+        // Check previously seen quests that may now be rewarded
+        for (uint32 qid : _prevTrackedQuests)
+            if (curActive.find(qid) == curActive.end())
+                curStatus[qid] = static_cast<uint8>(bot->GetQuestStatus(qid));
+
+        // Detect newly accepted quests
+        for (uint32 qid : curActive)
+            if (_prevTrackedQuests.find(qid) == _prevTrackedQuests.end())
+                reward += 5.0f;
+
+        // Detect newly completed/rewarded quests
+        for (auto const& [qid, prevStatus] : _prevQuestStatus)
+        {
+            auto it = curStatus.find(qid);
+            if (it != curStatus.end())
+            {
+                uint8 cur = it->second;
+                if (prevStatus == static_cast<uint8>(QUEST_STATUS_COMPLETE) &&
+                    cur == static_cast<uint8>(QUEST_STATUS_REWARDED))
+                    reward += 20.0f;
+            }
+        }
+
+        // Detect objective progress
+        for (auto const& [qid, prevCounts] : _prevObjectiveCounts)
+        {
+            auto it = curCounters.find(qid);
+            if (it != curCounters.end())
+                for (int i = 0; i < 4; ++i)
+                    if (it->second[i] > prevCounts[i])
+                        reward += 0.5f * static_cast<float>(it->second[i] - prevCounts[i]);
+        }
+
+        // Reward proximity to quest giver
+        if (_cachedNearestQGDist > 0.0f && _cachedNearestQGDist < 5.0f)
+            reward += 0.5f * (1.0f - _cachedNearestQGDist / 5.0f);
+
+        // Update snapshots
+        _prevTrackedQuests.insert(curActive.begin(), curActive.end());
+        _prevQuestStatus = std::move(curStatus);
+        _prevObjectiveCounts = std::move(curCounters);
+    }
+
     reward -= 0.001f;
 
     return reward;
@@ -528,6 +682,11 @@ void NeuralBotMgr::ResetRewardTracking()
     _killCount = 0.0f;
     _diedThisStep = false;
     _stepCount = 0;
+
+    _prevTrackedQuests.clear();
+    _prevQuestStatus.clear();
+    _prevObjectiveCounts.clear();
+    _cachedNearestQGDist = 0.0f;
 }
 
 void NeuralBotMgr::ExecuteAction(uint32 action)
@@ -751,6 +910,134 @@ void NeuralBotMgr::ExecuteAction(uint32 action)
     case ACTION_STAND_UP:
         bot->SetStandState(UNIT_STAND_STATE_STAND);
         break;
+    case ACTION_INTERACT_NPC:
+    {
+        Unit* target = bot->GetSelectedUnit();
+        if (target && target->ToCreature())
+        {
+            ObjectGuid guid = target->GetGUID();
+            Creature* creature = target->ToCreature();
+
+            InjectCMSG(CMSG_QUESTGIVER_HELLO, [guid](WorldPacket& pkt) {
+                pkt << guid;
+            });
+
+            auto bounds = sObjectMgr->GetCreatureQuestRelationBounds(creature->GetEntry());
+            for (auto it = bounds.first; it != bounds.second; ++it)
+            {
+                Quest const* quest = sObjectMgr->GetQuestTemplate(it->second);
+                if (quest && bot->CanTakeQuest(quest, false))
+                {
+                    uint32 questId = it->second;
+                    InjectCMSG(CMSG_QUESTGIVER_ACCEPT_QUEST, [guid, questId](WorldPacket& pkt) {
+                        pkt << guid;
+                        pkt << uint32(questId);
+                        pkt << uint32(0);
+                    });
+                }
+            }
+        }
+        break;
+    }
+    case ACTION_COMPLETE_QUEST:
+    {
+        if (!bot->IsInWorld())
+            break;
+
+        float range = 40.0f;
+        std::list<Unit*> friendlies;
+        Acore::AnyFriendlyUnitInObjectRangeCheck friendlyCheck(bot, bot, range);
+        Acore::UnitListSearcher<decltype(friendlyCheck)> searcher(bot, friendlies, friendlyCheck);
+        Cell::VisitObjects(bot, searcher, range);
+
+        bool completed = false;
+        for (uint32 slot = 0; slot < 25 && !completed; ++slot)
+        {
+            uint32 qid = bot->GetQuestSlotQuestId(slot);
+            if (!qid)
+                continue;
+
+            if (bot->GetQuestStatus(qid) != QUEST_STATUS_COMPLETE)
+                continue;
+
+            Quest const* quest = sObjectMgr->GetQuestTemplate(qid);
+            if (!quest)
+                continue;
+
+            for (Unit* u : friendlies)
+            {
+                Creature* c = u->ToCreature();
+                if (!c)
+                    continue;
+
+                auto bounds = sObjectMgr->GetCreatureQuestInvolvedRelationBounds(c->GetEntry());
+                for (auto it = bounds.first; it != bounds.second; ++it)
+                {
+                    if (it->second == qid)
+                    {
+                        ObjectGuid guid = c->GetGUID();
+                        InjectCMSG(CMSG_QUESTGIVER_COMPLETE_QUEST, [guid, qid](WorldPacket& pkt) {
+                            pkt << guid;
+                            pkt << uint32(qid);
+                        });
+                        InjectCMSG(CMSG_QUESTGIVER_CHOOSE_REWARD, [guid, qid](WorldPacket& pkt) {
+                            pkt << guid;
+                            pkt << uint32(qid);
+                            pkt << uint32(0);
+                        });
+                        completed = true;
+                        break;
+                    }
+                }
+                if (completed)
+                    break;
+            }
+        }
+        break;
+    }
+    case ACTION_TARGET_QUEST_GIVER:
+    {
+        if (!bot->IsInWorld())
+            break;
+
+        float range = 40.0f;
+        std::list<Unit*> friendlies;
+        Acore::AnyFriendlyUnitInObjectRangeCheck friendlyCheck(bot, bot, range);
+        Acore::UnitListSearcher<decltype(friendlyCheck)> searcher(bot, friendlies, friendlyCheck);
+        Cell::VisitObjects(bot, searcher, range);
+
+        Unit* best = nullptr;
+        float bestDist = range + 1.0f;
+
+        for (Unit* u : friendlies)
+        {
+            Creature* c = u->ToCreature();
+            if (!c)
+                continue;
+
+            uint32 entry = c->GetEntry();
+            auto startBounds = sObjectMgr->GetCreatureQuestRelationBounds(entry);
+            auto endBounds = sObjectMgr->GetCreatureQuestInvolvedRelationBounds(entry);
+
+            if (startBounds.first != startBounds.second || endBounds.first != endBounds.second)
+            {
+                float d = bot->GetDistance(c);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    best = c;
+                }
+            }
+        }
+
+        if (best)
+        {
+            InjectCMSG(CMSG_SET_SELECTION, [best](WorldPacket& pkt) {
+                pkt << best->GetGUID();
+            });
+        }
+        break;
+    }
     }
 }
 

@@ -13,6 +13,9 @@
 #include <functional>
 #include <thread>
 #include <atomic>
+#include <set>
+#include <map>
+#include <array>
 
 class NeuralBotMgr
 {
@@ -84,6 +87,12 @@ private:
     float _prevHealth = 0.0f;
     float _killCount = 0.0f;
     bool _diedThisStep = false;
+
+    // Quest state tracking
+    std::set<uint32> _prevTrackedQuests;
+    std::map<uint32, uint8> _prevQuestStatus;
+    std::map<uint32, std::array<uint16, 4>> _prevObjectiveCounts;
+    float _cachedNearestQGDist = 0.0f;
 
     std::mutex _stepMutex;
     std::condition_variable _stepCv;

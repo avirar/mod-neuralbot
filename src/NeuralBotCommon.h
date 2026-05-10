@@ -25,10 +25,11 @@ constexpr size_t OBS_PLAYER_STATE_SIZE = 20;
 constexpr size_t OBS_NEARBY_UNITS_COUNT = 10;
 constexpr size_t OBS_NEARBY_UNIT_FEATURES = 8;
 constexpr size_t OBS_COMBAT_STATE_SIZE = 10;
+constexpr size_t OBS_QUEST_STATE_SIZE = 10;
 constexpr size_t OBS_OPCODE_HISTORY_SIZE = 64;
-constexpr size_t OBS_TOTAL_SIZE = OBS_PLAYER_STATE_SIZE + (OBS_NEARBY_UNITS_COUNT * OBS_NEARBY_UNIT_FEATURES) + OBS_COMBAT_STATE_SIZE + OBS_OPCODE_HISTORY_SIZE;
+constexpr size_t OBS_TOTAL_SIZE = OBS_PLAYER_STATE_SIZE + (OBS_NEARBY_UNITS_COUNT * OBS_NEARBY_UNIT_FEATURES) + OBS_COMBAT_STATE_SIZE + OBS_QUEST_STATE_SIZE + OBS_OPCODE_HISTORY_SIZE;
 
-constexpr size_t ACTION_COUNT = 24;
+constexpr size_t ACTION_COUNT = 27;
 
 enum NeuralBotAction : uint32
 {
@@ -55,7 +56,10 @@ enum NeuralBotAction : uint32
     ACTION_CAST_SPELL_2 = 20,
     ACTION_CAST_SPELL_3 = 21,
     ACTION_INTERACT_LOOT = 22,
-    ACTION_STAND_UP = 23
+    ACTION_STAND_UP = 23,
+    ACTION_INTERACT_NPC = 24,
+    ACTION_COMPLETE_QUEST = 25,
+    ACTION_TARGET_QUEST_GIVER = 26
 };
 
 struct NeuralBotObservation
@@ -63,6 +67,7 @@ struct NeuralBotObservation
     float playerState[OBS_PLAYER_STATE_SIZE] = {0};
     float nearbyUnits[OBS_NEARBY_UNITS_COUNT][OBS_NEARBY_UNIT_FEATURES] = {{0}};
     float combatState[OBS_COMBAT_STATE_SIZE] = {0};
+    float questState[OBS_QUEST_STATE_SIZE] = {0};
     int32 opcodeHistory[OBS_OPCODE_HISTORY_SIZE] = {0};
 
     void ToFloatArray(float* out) const;
@@ -76,6 +81,10 @@ struct NeuralBotReward
     float killReward = 0.0f;
     float deathPenalty = 0.0f;
     float lootReward = 0.0f;
+    float questAccepted = 0.0f;
+    float questCompleted = 0.0f;
+    float questProximity = 0.0f;
+    float questProgress = 0.0f;
     float timePenalty = -0.001f;
     float total = 0.0f;
 };
