@@ -1,0 +1,7 @@
+NeuralBot.Enable = 1
+NeuralBot.WebSocketPort = 9000
+NeuralBot.TickRateMs = 50
+NeuralBot.BotCharacterName = "Neuralbot"
+NeuralBot.BotAccountId = 0
+NeuralBot.MaxEpisodeSteps = 1000
+NeuralBot.LogPackets = 0
