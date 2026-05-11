@@ -13,8 +13,10 @@ import mmap
 import os
 import struct
 import numpy as np
+from typing import Optional, Sequence
 
 from neuralbot_client import OBS_TOTAL_SIZE, ACTION_COUNT, NUM_BOTS
+from stable_baselines3.common.vec_env import VecEnv
 
 SHM_NAME = "/neuralbot_shm"
 SHM_PATH = "/dev/shm/neuralbot_shm"
@@ -40,7 +42,7 @@ CTRL_FMT = "<IIIIiIII32x"
 CTRL_SIZE = struct.calcsize(CTRL_FMT)  # 64
 
 
-class SharedMemoryVecEnv:
+class SharedMemoryVecEnv(VecEnv):
     """VecEnv-compatible wrapper using shared memory for batch stepping."""
 
     def __init__(self, timeout: float = 30.0):
@@ -51,8 +53,13 @@ class SharedMemoryVecEnv:
         self._setup_regions()
 
         self.num_envs = self.num_bots
-        self.observation_space_shape = (OBS_TOTAL_SIZE,)
-        self.action_space_n = ACTION_COUNT
+
+        import gymnasium as gym
+        observation_space = gym.spaces.Box(
+            low=-1.0, high=65535.0, shape=(OBS_TOTAL_SIZE,), dtype=np.float32
+        )
+        action_space = gym.spaces.Discrete(ACTION_COUNT)
+        super().__init__(self.num_envs, observation_space, action_space)
 
     def _connect(self):
         # Wait for shared memory to appear
@@ -150,7 +157,12 @@ class SharedMemoryVecEnv:
         self._closed = True
         self._set_flag("shutdown", 1)
         if hasattr(self, '_mm') and self._mm:
+            # Release numpy views before closing mmap to avoid BufferError
+            for attr in ('_actions', '_obs_all', '_dones'):
+                if hasattr(self, attr):
+                    delattr(self, attr)
             self._mm.close()
+            self._mm = None
 
     def get_attr(self, attr_name, indices=None):
         return [getattr(self, attr_name) for _ in range(self.num_envs)]
