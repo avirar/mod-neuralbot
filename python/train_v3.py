@@ -44,9 +44,9 @@ class EpisodeStatsCallback(BaseCallback):
         "(episode, reward, length, xp, kill_count, death, "
         " quest_proximity, quest_progress, enemy_proximity, target_acquired, "
         " act_0, act_1, act_2, act_3, act_4, act_5, act_6, act_7, "
-        " act_8, act_9, act_10, act_11, act_12, act_13) "
+        " act_8, act_9, act_10, act_11, act_12, act_13, act_14) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-        " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     )
 
     def __init__(self, db_config: dict, verbose=0):
@@ -111,6 +111,7 @@ class EpisodeStatsCallback(BaseCallback):
                     int(self.current_actions[8]),  int(self.current_actions[9]),
                     int(self.current_actions[10]), int(self.current_actions[11]),
                     int(self.current_actions[12]), int(self.current_actions[13]),
+                    int(self.current_actions[14]),
                 )
                 self._rollout_rows.append(row)
                 self.episode_num += 1
@@ -178,10 +179,15 @@ def main():
     stats_callback = EpisodeStatsCallback(DB_CONFIG)
 
     if has_previous:
-        print(f"Loading existing model from {model_zip} ...", flush=True)
-        model = PPO.load(model_path, env=env)
-        print(f"Model loaded. Will save final as {save_path}.zip", flush=True)
-    else:
+        try:
+            model = PPO.load(model_path, env=env)
+            print(f"Model loaded from {model_zip}. Will save final as {save_path}.zip", flush=True)
+        except Exception as e:
+            print(f"Model load failed: {e}", flush=True)
+            print("Creating fresh model (action/obs space may have changed).", flush=True)
+            has_previous = False
+            save_path = model_path
+    if not has_previous:
         model = PPO(
             "MlpPolicy",
             env,
@@ -192,7 +198,7 @@ def main():
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.02,
+            ent_coef=0.05,
         )
         print(f"Fresh model created.", flush=True)
 

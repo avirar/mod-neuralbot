@@ -270,7 +270,7 @@ void NeuralBotMgr::OnPlayerCreatureKill(Player* killer, Creature* killed)
     auto it = _instancesByGuid.find(killer->GetGUID());
     if (it != _instancesByGuid.end())
     {
-        it->second->OnPlayerCreatureKill();
+        it->second->OnPlayerCreatureKill(killed);
         static uint32 killLogCounter = 0;
         if (++killLogCounter % 50 == 1)
             LOG_INFO("module.neuralbot.debug", "KILL hook: '{}' killed '{}' (entry {}) — total kills logged: {}",

@@ -145,9 +145,12 @@ void NeuralBotInstance::OnPlayerJustDied()
     _diedThisStep = true;
 }
 
-void NeuralBotInstance::OnPlayerCreatureKill()
+void NeuralBotInstance::OnPlayerCreatureKill(Creature* killed)
 {
     _killCount += 1.0f;
+    _killsThisEpisode++;
+    if (killed)
+        _lastKilledGuid = killed->GetGUID();
 }
 
 void NeuralBotInstance::BuildObservationInto(NeuralBotObservation& obs)
@@ -485,6 +488,12 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     }
     out.enemyProximity = enemyProximityReward;
 
+    float curMoney = static_cast<float>(bot->GetMoney());
+    float moneyDelta = (curMoney - _prevMoney) / 10000.0f;
+    out.lootReward = std::min(moneyDelta, 1.0f);
+    reward += out.lootReward;
+    _prevMoney = curMoney;
+
     // Target-acquisition reward — nudge agent to use TARGET_NEAREST_ENEMY
     float targetAcquiredReward = 0.0f;
     {
@@ -535,6 +544,9 @@ void NeuralBotInstance::ResetRewardTracking()
     _prevTargetGuid = ObjectGuid::Empty;
     _questAutoCompleted = 0;
     _stepsWithoutReward = 0;
+    _lastKilledGuid.Clear();
+    _prevMoney = _player ? static_cast<float>(_player->GetMoney()) : 0.0f;
+    _killsThisEpisode = 0;
 }
 
 void NeuralBotInstance::ExecuteAction(uint32 action)
@@ -628,6 +640,45 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
     {
         if (Unit* target = bot->GetSelectedUnit())
             InjectCMSG(CMSG_ATTACKSWING, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
+        break;
+    }
+    case ACTION_LOOT:
+    {
+        Creature* lootTarget = nullptr;
+        if (!_lastKilledGuid.IsEmpty())
+        {
+            if (Creature* c = bot->GetMap()->GetCreature(_lastKilledGuid))
+                if (!c->IsAlive() && bot->GetDistance(c) < 20.0f)
+                    lootTarget = c;
+        }
+        if (!lootTarget)
+        {
+            float bestDist = 15.0f;
+            std::list<Unit*> nearby;
+            Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, bestDist);
+            Acore::UnitListSearcher<decltype(check)> searcher(bot, nearby, check);
+            Cell::VisitObjects(bot, searcher, bestDist);
+            for (Unit* u : nearby)
+            {
+                if (u->isDead() && u->IsCreature())
+                {
+                    Creature* c = u->ToCreature();
+                    if (c && bot->GetDistance(c) < bestDist)
+                    {
+                        bestDist = bot->GetDistance(c);
+                        lootTarget = c;
+                    }
+                }
+            }
+        }
+        if (!lootTarget) break;
+
+        ObjectGuid guid = lootTarget->GetGUID();
+        InjectCMSG(CMSG_LOOT, [guid](WorldPacket& pkt) { pkt << guid; });
+        InjectCMSG(CMSG_LOOT_MONEY, [](WorldPacket& pkt) { });
+        for (uint8 slot = 0; slot < 16; ++slot)
+            InjectCMSG(CMSG_AUTOSTORE_LOOT_ITEM, [slot](WorldPacket& pkt) { pkt << slot; });
+        InjectCMSG(CMSG_LOOT_RELEASE, [guid](WorldPacket& pkt) { pkt << guid; });
         break;
     }
     case ACTION_CAST_SPELL_1:
@@ -783,13 +834,13 @@ NeuralBotStepResult NeuralBotInstance::Step(uint32 action)
     BuildObservationInto(result.observation);
 
     // Idle termination: if agent hasn't earned reward in 50 steps, end episode
-    if (result.reward.total > 0.01f)
+    if (result.reward.total > 0.001f)
         _stepsWithoutReward = 0;
     else
         _stepsWithoutReward++;
 
     bool timedOut = _stepCount >= _maxSteps;
-    bool idle = _stepsWithoutReward >= 50;
+    bool idle = _stepsWithoutReward >= 200;
 
     result.done = timedOut || _diedThisStep || !_player->IsAlive() || idle;
     if (result.done)

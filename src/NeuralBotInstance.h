@@ -32,7 +32,7 @@ public:
     void SetSpellSlots(std::vector<uint32> const& spells);
 
     void OnPlayerJustDied();
-    void OnPlayerCreatureKill();
+    void OnPlayerCreatureKill(Creature* killed = nullptr);
     void ProcessBotPackets();
     void OnWorldUpdate(uint32 diff);
 
@@ -62,7 +62,7 @@ private:
     bool _ready = false;
 
     uint32 _stepCount = 0;
-    uint32 _maxSteps = 1000;
+    uint32 _maxSteps = 3000;
 
     uint32 _spellSlots[5] = {0};
 
@@ -86,6 +86,10 @@ private:
     bool _autoQuestEnabled = false;
     uint32 _questAutoCompleted = 0;
     uint32 _stepsWithoutReward = 0;
+
+    ObjectGuid _lastKilledGuid;
+    float _prevMoney = 0.0f;
+    uint32 _killsThisEpisode = 0;
 };
 
 #endif

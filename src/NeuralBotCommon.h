@@ -28,7 +28,7 @@ constexpr size_t OBS_COMBAT_STATE_SIZE = 10;
 constexpr size_t OBS_QUEST_STATE_SIZE = 10;
 constexpr size_t OBS_TOTAL_SIZE = OBS_PLAYER_STATE_SIZE + (OBS_NEARBY_UNITS_COUNT * OBS_NEARBY_UNIT_FEATURES) + OBS_COMBAT_STATE_SIZE + OBS_QUEST_STATE_SIZE;
 
-constexpr size_t ACTION_COUNT = 14;
+constexpr size_t ACTION_COUNT = 15;
 
 enum NeuralBotAction : uint32
 {
@@ -45,7 +45,8 @@ enum NeuralBotAction : uint32
     ACTION_CAST_SPELL_3 = 10,
     ACTION_INTERACT_NPC = 11,
     ACTION_COMPLETE_QUEST = 12,
-    ACTION_TARGET_QUEST_GIVER = 13
+    ACTION_TARGET_QUEST_GIVER = 13,
+    ACTION_LOOT = 14
 };
 
 struct NeuralBotObservation
