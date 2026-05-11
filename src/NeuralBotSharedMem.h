@@ -13,7 +13,7 @@ constexpr uint32_t SHM_VERSION = 1;
 constexpr size_t  SHM_MAX_BOTS = 4096;
 
 // Per-bot observation layout: obs[80] + reward + components[12] = 93 floats
-constexpr size_t SHM_OBS_PER_BOT   = OBS_TOTAL_SIZE + 1 + 12;
+constexpr size_t SHM_OBS_PER_BOT   = OBS_TOTAL_SIZE + 1 + 14;
 constexpr size_t SHM_OBS_BYTES     = SHM_OBS_PER_BOT * sizeof(float);
 constexpr size_t SHM_ACTIONS_SIZE  = SHM_MAX_BOTS * sizeof(uint8_t);
 constexpr size_t SHM_DONES_SIZE    = SHM_MAX_BOTS * sizeof(uint8_t);

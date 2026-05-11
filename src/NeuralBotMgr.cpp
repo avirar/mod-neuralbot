@@ -109,6 +109,7 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
 
     static float obsFlat[SHM_MAX_BOTS * SHM_OBS_PER_BOT];
     static uint8_t dones[SHM_MAX_BOTS];
+    size_t off = OBS_TOTAL_SIZE;
 
     for (uint32_t i = 0; i < _botCount; ++i)
     {
@@ -120,20 +121,22 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
             NeuralBotStepResult result = it->second->Step(static_cast<uint32>(actions[i]));
 
             result.observation.ToFloatArray(botObs);
-            botObs[80] = result.reward.total;
+            botObs[off] = result.reward.total;
 
-            botObs[81] = result.reward.xpDelta;
-            botObs[82] = result.reward.damageTaken;
-            botObs[83] = result.reward.killReward;
-            botObs[84] = result.reward.deathPenalty;
-            botObs[85] = result.reward.lootReward;
-            botObs[86] = result.reward.questAccepted;
-            botObs[87] = result.reward.questCompleted;
-            botObs[88] = result.reward.questProximity;
-            botObs[89] = result.reward.questProgress;
-            botObs[90] = result.reward.enemyProximity;
-            botObs[91] = result.reward.targetAcquired;
-            botObs[92] = result.reward.timePenalty;
+            botObs[off + 1]  = result.reward.xpDelta;
+            botObs[off + 2]  = result.reward.damageTaken;
+            botObs[off + 3]  = result.reward.killReward;
+            botObs[off + 4]  = result.reward.deathPenalty;
+            botObs[off + 5]  = result.reward.lootReward;
+            botObs[off + 6]  = result.reward.questAccepted;
+            botObs[off + 7]  = result.reward.questCompleted;
+            botObs[off + 8]  = result.reward.questProximity;
+            botObs[off + 9]  = result.reward.questProgress;
+            botObs[off + 10] = result.reward.enemyProximity;
+            botObs[off + 11] = result.reward.targetAcquired;
+            botObs[off + 12] = result.reward.spellLearned;
+            botObs[off + 13] = result.reward.trainerProximity;
+            botObs[off + 14] = result.reward.timePenalty;
 
             dones[i] = result.done ? 1 : 0;
 
@@ -157,8 +160,8 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
     if (++stepSampleCounter % 100 == 1)
     {
         float* b0 = obsFlat; // bot 0
-        LOG_INFO("module.neuralbot.debug", "SHM step {} bot[0]={} reward={:.4f} kill={:.4f} death={:.4f} xp={:.4f} done={}",
-            stepSampleCounter, _botOrder[0], b0[80], b0[83], b0[84], b0[81], dones[0]);
+        LOG_INFO("module.neuralbot.debug", "SHM step {} bot[0]={} reward={:.4f} kill={:.4f} death={:.4f} xp={:.4f} spell={:.4f} done={}",
+            stepSampleCounter, _botOrder[0], b0[off], b0[off + 3], b0[off + 4], b0[off + 1], b0[off + 12], dones[0]);
     }
 }
 
@@ -276,6 +279,14 @@ void NeuralBotMgr::OnPlayerCreatureKill(Player* killer, Creature* killed)
             LOG_INFO("module.neuralbot.debug", "KILL hook: '{}' killed '{}' (entry {}) — total kills logged: {}",
                 killer->GetName(), killed ? killed->GetName() : "?", killed ? killed->GetEntry() : 0, killLogCounter);
     }
+}
+
+void NeuralBotMgr::OnPlayerLearnSpell(Player* player, uint32 spellId)
+{
+    if (!_enabled || !player) return;
+    auto it = _instancesByGuid.find(player->GetGUID());
+    if (it != _instancesByGuid.end())
+        it->second->OnPlayerLearnSpell(spellId);
 }
 
 void NeuralBotMgr::OnPlayerAfterUpdate(Player* player, uint32 /*diff*/)

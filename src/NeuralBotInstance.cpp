@@ -10,6 +10,7 @@
 #include "Log.h"
 #include "Opcodes.h"
 #include "Map.h"
+#include "Trainer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -153,6 +154,11 @@ void NeuralBotInstance::OnPlayerCreatureKill(Creature* killed)
         _lastKilledGuid = killed->GetGUID();
 }
 
+void NeuralBotInstance::OnPlayerLearnSpell(uint32 /*spellId*/)
+{
+    _spellsLearnedThisEpisode++;
+}
+
 void NeuralBotInstance::BuildObservationInto(NeuralBotObservation& obs)
 {
     Player* bot = _player;
@@ -251,6 +257,53 @@ void NeuralBotInstance::BuildObservationInto(NeuralBotObservation& obs)
     {
         uint32 spellId = _spellSlots[i];
         obs.combatState[5 + i] = (spellId > 0 && !bot->HasSpellCooldown(spellId)) ? 1.0f : 0.0f;
+    }
+
+    // --- Trainer state ---
+    {
+        float nearestTrainerDist = 0.0f;
+        uint32 learnableCount = 0;
+        bool canAfford = false;
+        Unit* nearestTrainer = nullptr;
+
+        if (bot->IsInWorld())
+        {
+            float range = 40.0f;
+            std::list<Unit*> friendlies;
+            Acore::AnyFriendlyUnitInObjectRangeCheck friendlyCheck(bot, bot, range);
+            Acore::UnitListSearcher<decltype(friendlyCheck)> searcher(bot, friendlies, friendlyCheck);
+            Cell::VisitObjects(bot, searcher, range);
+
+            for (Unit* u : friendlies)
+            {
+                Creature* c = u->ToCreature();
+                if (!c || !(c->GetNpcFlags() & UNIT_NPC_FLAG_TRAINER)) continue;
+                Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(c->GetEntry());
+                if (!trainer || !trainer->IsTrainerValidForPlayer(bot)) continue;
+
+                float dist = bot->GetDistance(c);
+                if (!nearestTrainer || dist < nearestTrainerDist)
+                    nearestTrainerDist = dist;
+
+                if (!nearestTrainer)
+                {
+                    nearestTrainer = c;
+                    for (auto const& spell : trainer->GetSpells())
+                        if (trainer->CanTeachSpell(bot, &spell))
+                            learnableCount++;
+                    if (learnableCount > 0 && !trainer->GetSpells().empty()
+                        && trainer->GetSpells()[0].MoneyCost <= bot->GetMoney())
+                        canAfford = true;
+                }
+            }
+        }
+
+        _cachedNearestTrainerDist = nearestTrainerDist;
+        obs.combatState[10] = nearestTrainerDist > 0.0f ? std::min(nearestTrainerDist / 40.0f, 1.0f) : 1.0f;
+        obs.combatState[11] = (nearestTrainerDist > 0.0f && nearestTrainerDist <= 5.0f) ? 1.0f : 0.0f;
+        obs.combatState[12] = std::min(static_cast<float>(learnableCount) / 10.0f, 1.0f);
+        obs.combatState[13] = canAfford ? 1.0f : 0.0f;
+        obs.combatState[14] = (nearestTrainer != nullptr) ? 1.0f : 0.0f;
     }
 
     // --- Quest state ---
@@ -511,6 +564,32 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     }
     out.targetAcquired = targetAcquiredReward;
 
+    // Trainer proximity reward — gradient to pull bots toward class trainers
+    float trainerProximityReward = 0.0f;
+    if (_cachedNearestTrainerDist > 0.0f)
+    {
+        if (_cachedNearestTrainerDist < 5.0f)
+            trainerProximityReward = 0.1f * (1.0f - _cachedNearestTrainerDist / 5.0f);
+        else if (_cachedNearestTrainerDist < 10.0f)
+            trainerProximityReward = 0.05f;
+        else if (_cachedNearestTrainerDist < 20.0f)
+            trainerProximityReward = 0.02f;
+        else
+            trainerProximityReward = 0.005f;
+
+        if (_prevTrainerDist > 0.0f && _cachedNearestTrainerDist < _prevTrainerDist)
+            trainerProximityReward += 0.002f;
+        reward += trainerProximityReward;
+        _prevTrainerDist = _cachedNearestTrainerDist;
+    }
+    out.trainerProximity = trainerProximityReward;
+
+    // Spell learned reward — significant bonus for learning new spells
+    float spellLearnedReward = _spellsLearnedThisEpisode * 10.0f;
+    reward += spellLearnedReward;
+    out.spellLearned = spellLearnedReward;
+    _spellsLearnedThisEpisode = 0;
+
     float timePenalty = 0.001f;
     reward -= timePenalty;
     out.timePenalty = timePenalty;
@@ -547,6 +626,9 @@ void NeuralBotInstance::ResetRewardTracking()
     _lastKilledGuid.Clear();
     _prevMoney = _player ? static_cast<float>(_player->GetMoney()) : 0.0f;
     _killsThisEpisode = 0;
+    _prevTrainerDist = 0.0f;
+    _prevTrainerGuid.Clear();
+    _spellsLearnedThisEpisode = 0;
 }
 
 void NeuralBotInstance::ExecuteAction(uint32 action)
@@ -808,6 +890,45 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         }
         if (best)
             InjectCMSG(CMSG_SET_SELECTION, [best](WorldPacket& pkt) { pkt << best->GetGUID(); });
+        break;
+    }
+    case ACTION_LEARN_SPELL:
+    {
+        if (!bot->IsInWorld()) break;
+        Creature* bestTrainer = nullptr;
+        float bestDist = 40.0f;
+        std::list<Unit*> friendlies;
+        Acore::AnyFriendlyUnitInObjectRangeCheck check(bot, bot, bestDist);
+        Acore::UnitListSearcher<decltype(check)> searcher(bot, friendlies, check);
+        Cell::VisitObjects(bot, searcher, bestDist);
+
+        for (Unit* u : friendlies)
+        {
+            Creature* c = u->ToCreature();
+            if (!c || !(c->GetNpcFlags() & UNIT_NPC_FLAG_TRAINER)) continue;
+            Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(c->GetEntry());
+            if (!trainer || !trainer->IsTrainerValidForPlayer(bot)) continue;
+            float d = bot->GetDistance(c);
+            if (d < bestDist) { bestDist = d; bestTrainer = c; }
+        }
+        if (!bestTrainer) break;
+
+        Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(bestTrainer->GetEntry());
+        if (!trainer) break;
+
+        ObjectGuid guid = bestTrainer->GetGUID();
+        for (auto const& spell : trainer->GetSpells())
+        {
+            if (trainer->CanTeachSpell(bot, &spell)
+                && spell.MoneyCost <= bot->GetMoney())
+            {
+                InjectCMSG(CMSG_TRAINER_BUY_SPELL, [guid, spellId = spell.SpellId](WorldPacket& pkt) {
+                    pkt << guid;
+                    pkt << uint32(spellId);
+                });
+                break;
+            }
+        }
         break;
     }
     }

@@ -34,6 +34,7 @@ public:
     void OnPlayerLogin(Player* player);
     void OnPlayerJustDied(Player* player);
     void OnPlayerCreatureKill(Player* killer, Creature* killed);
+    void OnPlayerLearnSpell(Player* player, uint32 spellId);
     void OnPlayerAfterUpdate(Player* player, uint32 diff);
 
     NeuralBotStepResult Step(std::string const& botName, uint32 action);

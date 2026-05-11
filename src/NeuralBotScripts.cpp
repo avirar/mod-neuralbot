@@ -50,7 +50,8 @@ public:
         PLAYERHOOK_ON_LOGIN,
         PLAYERHOOK_ON_AFTER_UPDATE,
         PLAYERHOOK_ON_PLAYER_JUST_DIED,
-        PLAYERHOOK_ON_CREATURE_KILL
+        PLAYERHOOK_ON_CREATURE_KILL,
+        PLAYERHOOK_ON_LEARN_SPELL
     }) {}
 
     void OnPlayerLogin(Player* player) override
@@ -71,6 +72,11 @@ public:
     void OnPlayerCreatureKill(Player* killer, Creature* killed) override
     {
         sNeuralBotMgr.OnPlayerCreatureKill(killer, killed);
+    }
+
+    void OnPlayerLearnSpell(Player* player, uint32 spellId) override
+    {
+        sNeuralBotMgr.OnPlayerLearnSpell(player, spellId);
     }
 };
 

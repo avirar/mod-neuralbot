@@ -33,6 +33,7 @@ public:
 
     void OnPlayerJustDied();
     void OnPlayerCreatureKill(Creature* killed = nullptr);
+    void OnPlayerLearnSpell(uint32 spellId);
     void ProcessBotPackets();
     void OnWorldUpdate(uint32 diff);
 
@@ -90,6 +91,11 @@ private:
     ObjectGuid _lastKilledGuid;
     float _prevMoney = 0.0f;
     uint32 _killsThisEpisode = 0;
+
+    float _cachedNearestTrainerDist = 0.0f;
+    float _prevTrainerDist = 0.0f;
+    ObjectGuid _prevTrainerGuid;
+    uint32 _spellsLearnedThisEpisode = 0;
 };
 
 #endif

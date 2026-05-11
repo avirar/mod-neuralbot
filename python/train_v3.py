@@ -44,9 +44,9 @@ class EpisodeStatsCallback(BaseCallback):
         "(episode, reward, length, xp, kill_count, death, "
         " quest_proximity, quest_progress, enemy_proximity, target_acquired, "
         " act_0, act_1, act_2, act_3, act_4, act_5, act_6, act_7, "
-        " act_8, act_9, act_10, act_11, act_12, act_13, act_14) "
+        " act_8, act_9, act_10, act_11, act_12, act_13, act_14, act_15) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-        " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     )
 
     def __init__(self, db_config: dict, verbose=0):
@@ -111,7 +111,7 @@ class EpisodeStatsCallback(BaseCallback):
                     int(self.current_actions[8]),  int(self.current_actions[9]),
                     int(self.current_actions[10]), int(self.current_actions[11]),
                     int(self.current_actions[12]), int(self.current_actions[13]),
-                    int(self.current_actions[14]),
+                    int(self.current_actions[14]), int(self.current_actions[15]),
                 )
                 self._rollout_rows.append(row)
                 self.episode_num += 1

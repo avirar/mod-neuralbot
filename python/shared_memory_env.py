@@ -25,7 +25,7 @@ SHM_PATH = "/dev/shm/neuralbot_shm"
 SHM_MAGIC       = 0x4E425348
 SHM_VERSION     = 1
 SHM_MAX_BOTS    = 4096
-SHM_OBS_PER_BOT = OBS_TOTAL_SIZE + 1 + 12  # obs[80] + reward + components[12] = 93
+SHM_OBS_PER_BOT = OBS_TOTAL_SIZE + 1 + 14  # obs[85] + reward + components[14] = 93
 SHM_OBS_BYTES   = SHM_OBS_PER_BOT * 4
 SHM_DONES_SIZE  = SHM_MAX_BOTS
 SHM_OBS_REGION_SIZE = SHM_MAX_BOTS * SHM_OBS_BYTES
@@ -182,7 +182,8 @@ class SharedMemoryVecEnv(VecEnv):
         keys = [
             "xp", "damage_taken", "kill", "death", "loot",
             "quest_accepted", "quest_completed", "quest_proximity",
-            "quest_progress", "enemy_proximity", "target_acquired", "time_penalty",
+            "quest_progress", "enemy_proximity", "target_acquired",
+            "spell_learned", "trainer_proximity", "time_penalty",
         ]
         infos = []
         for i in range(self.num_bots):

@@ -24,11 +24,11 @@
 constexpr size_t OBS_PLAYER_STATE_SIZE = 20;
 constexpr size_t OBS_NEARBY_UNITS_COUNT = 5;
 constexpr size_t OBS_NEARBY_UNIT_FEATURES = 8;
-constexpr size_t OBS_COMBAT_STATE_SIZE = 10;
+constexpr size_t OBS_COMBAT_STATE_SIZE = 15;
 constexpr size_t OBS_QUEST_STATE_SIZE = 10;
 constexpr size_t OBS_TOTAL_SIZE = OBS_PLAYER_STATE_SIZE + (OBS_NEARBY_UNITS_COUNT * OBS_NEARBY_UNIT_FEATURES) + OBS_COMBAT_STATE_SIZE + OBS_QUEST_STATE_SIZE;
 
-constexpr size_t ACTION_COUNT = 15;
+constexpr size_t ACTION_COUNT = 16;
 
 enum NeuralBotAction : uint32
 {
@@ -46,7 +46,8 @@ enum NeuralBotAction : uint32
     ACTION_INTERACT_NPC = 11,
     ACTION_COMPLETE_QUEST = 12,
     ACTION_TARGET_QUEST_GIVER = 13,
-    ACTION_LOOT = 14
+    ACTION_LOOT = 14,
+    ACTION_LEARN_SPELL = 15
 };
 
 struct NeuralBotObservation
@@ -73,6 +74,8 @@ struct NeuralBotReward
     float questProgress = 0.0f;
     float enemyProximity = 0.0f;
     float targetAcquired = 0.0f;
+    float spellLearned = 0.0f;
+    float trainerProximity = 0.0f;
     float timePenalty = -0.001f;
     float total = 0.0f;
 };
