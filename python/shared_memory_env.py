@@ -187,8 +187,7 @@ class SharedMemoryVecEnv(VecEnv):
         infos = []
         for i in range(self.num_bots):
             info = {}
-            if not dones[i]:
-                info["reward_components"] = {k: float(components[i, j]) for j, k in enumerate(keys)}
+            info["reward_components"] = {k: float(components[i, j]) for j, k in enumerate(keys)}
             infos.append(info)
         return infos
 

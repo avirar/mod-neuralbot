@@ -136,6 +136,10 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
             botObs[92] = result.reward.timePenalty;
 
             dones[i] = result.done ? 1 : 0;
+
+            // When episode ends, reset tracking so next step starts fresh
+            if (result.done)
+                it->second->ResetRewardTracking();
         }
         else
         {
@@ -147,6 +151,15 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
 
     sNeuralBotShm.WriteObservations(obsFlat, dones, _botCount);
     sNeuralBotShm.SignalObservationsReady();
+
+    // Debug: sample bot 0 reward components every 100 steps
+    static uint32 stepSampleCounter = 0;
+    if (++stepSampleCounter % 100 == 1)
+    {
+        float* b0 = obsFlat; // bot 0
+        LOG_INFO("module.neuralbot.debug", "SHM step {} bot[0]={} reward={:.4f} kill={:.4f} death={:.4f} xp={:.4f} done={}",
+            stepSampleCounter, _botOrder[0], b0[80], b0[83], b0[84], b0[81], dones[0]);
+    }
 }
 
 void NeuralBotMgr::LoginAllBots()
@@ -250,12 +263,19 @@ void NeuralBotMgr::OnPlayerJustDied(Player* player)
         it->second->OnPlayerJustDied();
 }
 
-void NeuralBotMgr::OnPlayerCreatureKill(Player* killer, Creature* /*killed*/)
+void NeuralBotMgr::OnPlayerCreatureKill(Player* killer, Creature* killed)
 {
     if (!_enabled || !killer) return;
+
     auto it = _instancesByGuid.find(killer->GetGUID());
     if (it != _instancesByGuid.end())
+    {
         it->second->OnPlayerCreatureKill();
+        static uint32 killLogCounter = 0;
+        if (++killLogCounter % 50 == 1)
+            LOG_INFO("module.neuralbot.debug", "KILL hook: '{}' killed '{}' (entry {}) — total kills logged: {}",
+                killer->GetName(), killed ? killed->GetName() : "?", killed ? killed->GetEntry() : 0, killLogCounter);
+    }
 }
 
 void NeuralBotMgr::OnPlayerAfterUpdate(Player* player, uint32 /*diff*/)

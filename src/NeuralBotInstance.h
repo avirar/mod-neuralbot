@@ -48,12 +48,13 @@ public:
     void SetMaxSteps(uint32 steps) { _maxSteps = steps; }
     uint32 GetStepCount() const { return _stepCount; }
 
+    void ResetRewardTracking();
+
 private:
     void BuildObservationInto(NeuralBotObservation& obs);
     void ExecuteAction(uint32 action);
     void InjectCMSG(uint16 opcode, std::function<void(WorldPacket&)> filler);
     float ComputeReward(NeuralBotReward& out);
-    void ResetRewardTracking();
     void AutoCompleteQuests();
 
     Player* _player = nullptr;

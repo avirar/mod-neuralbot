@@ -345,6 +345,12 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     float killReward = _killCount * 5.0f;
     reward += killReward;
     out.killReward = killReward;
+
+    static uint32 rewLogCounter = 0;
+    if (_killCount > 0.0f || (++rewLogCounter % 500 == 1))
+        LOG_INFO("module.neuralbot.debug", "ComputeReward: '{}' _killCount={:.1f} killReward={:.1f} xpDelta={:.4f} death={}",
+            GetName(), _killCount, killReward, xpReward, _diedThisStep);
+
     _killCount = 0.0f;
 
     float curHp = static_cast<float>(bot->GetHealth());
@@ -787,7 +793,15 @@ NeuralBotStepResult NeuralBotInstance::Step(uint32 action)
 
     result.done = timedOut || _diedThisStep || !_player->IsAlive() || idle;
     if (result.done)
+    {
         result.info = _diedThisStep ? "died" : (idle ? "idle" : "max_steps");
+
+        static uint32 doneLogCounter = 0;
+        if (++doneLogCounter % 200 == 1)
+            LOG_INFO("module.neuralbot.debug", "Step done: '{}' reason={} timedOut={} diedThisStep={} isAlive={} idle={} reward={:.4f} stepsWo={} stepCount={}",
+                GetName(), result.info, timedOut, _diedThisStep, _player ? _player->IsAlive() : false,
+                idle, result.reward.total, _stepsWithoutReward, _stepCount);
+    }
     return result;
 }
 
