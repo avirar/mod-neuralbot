@@ -150,6 +150,11 @@ def main():
     port = int(os.environ.get("NEURALBOT_PORT", "9000"))
     timesteps = int(os.environ.get("NEURALBOT_TIMESTEPS", "20000000"))
     model_path = os.environ.get("NEURALBOT_MODEL", "wow_neuralbot_model_v3")
+    model_zip = f"{model_path}.zip"
+    has_previous = os.path.exists(model_zip)
+
+    # When resuming, save to a new path to preserve previous iteration
+    save_path = f"{model_path}_iter2" if has_previous else model_path
 
     print(f"Connecting to shared memory at {os.environ.get('SHM_PATH', '/dev/shm/neuralbot_shm')}...")
     env = SharedMemoryVecEnv(timeout=60.0)
@@ -163,27 +168,33 @@ def main():
     print(f"Training PPO for {timesteps} timesteps using {num_bots} parallel envs...")
     print(f"Episode stats → MySQL {DB_CONFIG['host']}/{DB_CONFIG['database']}.neuralbot_episodes", flush=True)
 
-    checkpoint_path = os.path.dirname(model_path) or "."
+    checkpoint_path = os.path.dirname(save_path) or "."
     # save_freq=2500 means save every 2500 rollout steps = 2500 × 400envs = 1M global steps
     checkpoint_callback = CheckpointCallback(
         save_freq=2500,
         save_path=checkpoint_path,
-        name_prefix="wow_neuralbot_v3",
+        name_prefix=os.path.basename(save_path),
     )
     stats_callback = EpisodeStatsCallback(DB_CONFIG)
 
-    model = PPO(
-        "MlpPolicy",
-        env,
-        verbose=1,
-        n_steps=256,
-        batch_size=batch_size,
-        learning_rate=3e-4,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.02,
-    )
+    if has_previous:
+        print(f"Loading existing model from {model_zip} ...", flush=True)
+        model = PPO.load(model_path, env=env)
+        print(f"Model loaded. Will save final as {save_path}.zip", flush=True)
+    else:
+        model = PPO(
+            "MlpPolicy",
+            env,
+            verbose=1,
+            n_steps=256,
+            batch_size=batch_size,
+            learning_rate=3e-4,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=0.02,
+        )
+        print(f"Fresh model created.", flush=True)
 
     print(f"Starting model.learn() on device={model.device} ...", flush=True)
     model.learn(
@@ -191,8 +202,8 @@ def main():
         callback=[checkpoint_callback, stats_callback],
     )
 
-    model.save(model_path)
-    print(f"Model saved to {model_path}")
+    model.save(save_path)
+    print(f"Model saved to {save_path}")
 
     # Close stats connection
     if stats_callback._conn:
