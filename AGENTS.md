@@ -76,28 +76,29 @@ NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
   04:23): episodes rows >2 d old, checkpoints beyond newest 5, old logs, `Server.log` >500 MB
   (~1 GB/hour while training). Run it manually after big housekeeping.
 
-## Current state (2026-08-18)
+## Current state (2026-08-18, v0.4.0)
 
 Done:
-- PPO + shared-memory IPC + MySQL episode logging (v0.1.0).
-- **Native reward** (v0.2.0): `total = XP + gold + level + quest_complete − death`;
-  shaping terms are diagnostic-only.
-- **Faithful structured state** (v0.3.0): packed entity-centric `NeuralBotFrame` over
-  shm v2 (`src/NeuralBotFrame.h`, `FRAME_BYTES=5909`, `SHM_VERSION=2`, `frame_bytes` in
-  control block). `NeuralBotInstance::StepFrame/BuildFrame`, `NeuralBotMgr` writes
-  frames, Python parses via numpy structured dtypes and projects to `OBS_FLAT_SIZE=1148`
-  for `MlpPolicy`. Legacy 85-float/TCP path still compiles (unused).
-- Research + `DESIGN.md` (faithful state schema, action rework, shm v2).
-- Git forks (`avirar/{azerothcore-wotlk,mod-playerbots,mod-neuralbot}`) set up and synced
-  to latest upstream.
+- PPO + shm IPC + MySQL logging (v0.1.0); native reward (v0.2.0); structured frames
+  (v0.3.0).
+- v0.3.1: bot-name `GM` suffix fix (reserved names killed one env slot every boot).
+- v0.3.2: bots revive on episode end (dead slots used to loop length-1 episodes forever).
+- v0.4.0: **action space v2** — 41 actions: MOVE_TO_TARGET (MoveChase nav),
+  TARGET_ENTITY_0..17 (frame-index parity via BuildFrame guid cache),
+  CAST_SPELL_0..7 (frame spells[] order, passives filtered), INTERACT_TARGET
+  (gated 5.5yd context action: quest/trainer/vendor/chest), nearest-enemy/friendly/corpse
+  targeting, attack start/stop, COMPLETE_QUEST, LOOT. Episode table has act_0..act_40.
+- Ops: daily NAS archiver (`scripts/archive_to_nas.sh`, timer 04:23) + training watchdog
+  (`scripts/watchdog.sh`, `neuralbot-watchdog.service`; `/tmp/neuralbot_maintenance` flag
+  stands it down during manual work).
 
-Next (in order, from `ROADMAP.md`):
-1. **§3 Kill auto-services** — remove `AutoQuest`, auto-target, auto-loot.
-2. **§4 Action rework** — point-nav + entity-index targeting + spellbook-index casting
-   (now unblocked: the frame carries entity guids/indices).
-3. **§5 DreamerV3** — official `danijar/dreamerv3` (JAX), world model over real state
-   (consume the structured records directly, drop the flattened projection).
-4. **§6 Fix spell learning** — bots can't close the 5-yard trainer interaction.
+Training runs:
+- v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills
+  0.01/ep.
+- v5 = v0.4.0 action space, resumed across rebuilds from `*_steps.zip` checkpoints.
+
+Next (ROADMAP): §3 kill remaining auto-services (AutoQuest, cast auto-target fallback,
+COMPLETE_QUEST/LOOT context scans), §5 DreamerV3, curriculum.
 
 ## Conventions
 
