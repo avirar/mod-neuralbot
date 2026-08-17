@@ -187,6 +187,24 @@ void NeuralBotInstance::OnPlayerJustDied()
     _diedThisStep = true;
 }
 
+void NeuralBotInstance::ReviveIfDead()
+{
+    Player* bot = _player;
+    if (!bot || bot->IsAlive())
+        return;
+
+    // Nothing in the environment ever revives a bot: a corpse stays a corpse, and
+    // ShouldTerminate() then fires every step (!IsAlive), turning that env slot into an
+    // endless stream of length-1 zero-reward episodes. Revive at the death spot with 50%
+    // health (same sequence mod-playerbots uses at spirit healers) so the next episode
+    // starts immediately.
+    bot->ResurrectPlayer(0.5f);
+    bot->SpawnCorpseBones();
+    bot->SetTarget();
+    _diedThisStep = false;
+    _stepsWithoutReward = 0;
+}
+
 void NeuralBotInstance::OnPlayerCreatureKill(Creature* killed)
 {
     _killCount += 1.0f;

@@ -38,6 +38,7 @@ public:
     void OnPlayerJustDied();
     void OnPlayerCreatureKill(Creature* killed = nullptr);
     void OnPlayerLearnSpell(uint32 spellId);
+    void ReviveIfDead();
     void ProcessBotPackets();
     void OnWorldUpdate(uint32 diff);
 

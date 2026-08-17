@@ -127,7 +127,10 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
 
             // When episode ends, reset tracking so next step starts fresh
             if (result.done)
+            {
                 it->second->ResetRewardTracking();
+                it->second->ReviveIfDead();
+            }
         }
         else
         {

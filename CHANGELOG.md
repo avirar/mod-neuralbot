@@ -4,6 +4,18 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.3.2] — 2026-08-18
+
+### Fixed
+- **Dead-bot episode loop.** Nothing in the environment revived a bot after death, so
+  `ShouldTerminate` (!IsAlive) fired on *every* step: each dead bot emitted an endless
+  stream of length-1 zero-reward episodes, permanently poisoning its env slot (~8% of the
+  batch within the first minutes of the v4 run, growing). `NeuralBotMgr` now calls
+  `NeuralBotInstance::ReviveIfDead()` on episode end — `ResurrectPlayer(0.5f)` +
+  `SpawnCorpseBones()` at the death spot (same sequence mod-playerbots uses at spirit
+  healers) — so the death penalty stays native and sparse, and the next episode starts
+  immediately.
+
 ## [0.3.1] — 2026-08-18
 
 ### Fixed
