@@ -65,6 +65,10 @@ NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
   `env/dist/etc/worldserver.conf` (`Appender.Console=1,2,0`). Bumped to `1,4,0` (Info)
   on 2026-08-18 so the terminal shows detail; the full log still goes to
   `env/dist/bin/Server.log` (Debug level). `Errors.log` is empty unless there are errors.
+- **Performance:** the worldserver world thread (sessions + NeuralBot step loop) is the
+  training-throughput gate and is serial by design; `MapUpdate.Threads = 3` in
+  `env/dist/etc/worldserver.conf` offloads map updates (+24% fps, ~14k). Next lever if
+  needed: stagger BuildFrame's 60-yd grid scans across steps.
 - **No submodules.** `deps/*` and `modules/*` are plain tracked dirs / separate repos.
 - **DB:** `acore:abc@127.0.0.1:3306`, databases `acore_auth` / `acore_characters` /
   `acore_world`. MySQL runs on the host (port 3306), not the `ac-database` docker
