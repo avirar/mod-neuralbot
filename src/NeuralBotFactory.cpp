@@ -70,10 +70,18 @@ std::string NeuralBotFactory::GenerateBotName(uint32 index)
 {
     if (index < 26)
         return std::string("Neuralbot") + static_cast<char>('A' + index);
+
     uint32 i = index - 26;
-    char first  = static_cast<char>('A' + i / 26);
-    char second = static_cast<char>('A' + i % 26);
-    return std::string("Neuralbot") + first + second;
+
+    // AzerothCore reserves every name ending in "GM"/"gm" (ObjectMgr::IsReservedName and
+    // IsProfanityName hardcode the suffix check). Player::LoadFromDB then sets
+    // AT_LOGIN_RENAME and the bot can never spawn, permanently killing that bot slot.
+    // Skip the "GM" letter pair entirely by shifting every later pair past it.
+    constexpr uint32 GM_PAIR_INDEX = 6 * 26 + 12; // position of "GM" within AA..ZZ
+    if (i >= GM_PAIR_INDEX)
+        ++i;
+
+    return std::string("Neuralbot") + static_cast<char>('A' + i / 26) + static_cast<char>('A' + i % 26);
 }
 
 std::vector<BotCharacterTemplate> NeuralBotFactory::GetBotTemplates()
