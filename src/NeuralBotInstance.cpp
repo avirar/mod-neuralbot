@@ -615,6 +615,10 @@ void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
             SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
             if (!info)
                 continue;
+            // Castables only — a real client's action bar doesn't offer passives either.
+            // Keeps CAST_SPELL_i indices useful for exploration.
+            if (info->IsPassive())
+                continue;
             NBSpellRec& rec = frame.spells[n];
             rec.spellId = spellId;
             rec.cooldownMs = bot->GetSpellCooldownDelay(spellId);
@@ -967,6 +971,8 @@ uint32 NeuralBotInstance::GetFrameSpellId(size_t index)
             continue;
         if (!sSpellMgr->GetSpellInfo(spellId))
             continue;
+        if (sSpellMgr->GetSpellInfo(spellId)->IsPassive()) // mirror BuildFrame's castables-only filter
+            continue;
         if (n == index)
             return spellId;
         ++n;
@@ -1051,21 +1057,24 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
 
     case ACTION_MOVE_TO_TARGET:
     {
-        // Point navigation: chase the selected unit (navmesh pathfinding via MotionMaster).
-        // Fallback chain keeps a random policy mobile: nearest hostile, then nearest chest.
+        // Point navigation toward the selected unit. MoveChase is a creature-only
+        // generator (no-op on players); playerbots-style pathed MovePoint keeps the bot
+        // walking across ticks until arrival. Fallback chain keeps a random policy
+        // mobile: nearest hostile, then nearest chest.
         Unit* target = bot->GetSelectedUnit();
         if (!target || !target->IsInWorld())
-            target = FindNearestMatchingUnit(bot, 40.0f, true, false);
+            target = FindNearestMatchingUnit(bot, 60.0f, true, false);
         if (target)
         {
-            if (target->IsAlive())
-                bot->GetMotionMaster()->MoveChase(target);
-            else
-                bot->GetMotionMaster()->MovePoint(target->GetMapId(), target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), FORCED_MOVEMENT_RUN, false);
+            MotionMaster* mm = bot->GetMotionMaster();
+            mm->Clear();
+            mm->MovePoint(0, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(),
+                FORCED_MOVEMENT_NONE, 0.0f, 0.0f, /*generatePath=*/true, /*forceDestination=*/false);
             break;
         }
         if (GameObject* go = FindNearestChestGO(bot, 40.0f))
-            bot->GetMotionMaster()->MovePoint(go->GetMapId(), go->GetPositionX(), go->GetPositionY(), go->GetPositionZ(), FORCED_MOVEMENT_RUN, false);
+            bot->GetMotionMaster()->MovePoint(0, go->GetPositionX(), go->GetPositionY(), go->GetPositionZ(),
+                FORCED_MOVEMENT_NONE, 0.0f, 0.0f, true, false);
         break;
     }
 
@@ -1092,7 +1101,7 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         float x = bot->GetPositionX() + dx;
         float y = bot->GetPositionY() + dy;
         float z = bot->GetPositionZ();
-        bot->GetMotionMaster()->MovePoint(bot->GetMapId(), x, y, z, FORCED_MOVEMENT_RUN, false);
+        bot->GetMotionMaster()->MovePoint(0, x, y, z, FORCED_MOVEMENT_NONE, 0.0f, 0.0f, true, false);
         break;
     }
     case ACTION_MOVE_BACKWARD:
@@ -1104,7 +1113,7 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         float x = bot->GetPositionX() + dx;
         float y = bot->GetPositionY() + dy;
         float z = bot->GetPositionZ();
-        bot->GetMotionMaster()->MovePoint(bot->GetMapId(), x, y, z, FORCED_MOVEMENT_RUN, false);
+        bot->GetMotionMaster()->MovePoint(0, x, y, z, FORCED_MOVEMENT_NONE, 0.0f, 0.0f, true, false);
         break;
     }
     case ACTION_TURN_LEFT:
@@ -1126,19 +1135,19 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
 
     case ACTION_TARGET_NEAREST_ENEMY:
     {
-        if (Unit* nearest = FindNearestMatchingUnit(bot, 40.0f, true, false))
+        if (Unit* nearest = FindNearestMatchingUnit(bot, 60.0f, true, false))
             InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
         break;
     }
     case ACTION_TARGET_NEAREST_FRIENDLY:
     {
-        if (Unit* nearest = FindNearestMatchingUnit(bot, 40.0f, false, false))
+        if (Unit* nearest = FindNearestMatchingUnit(bot, 60.0f, false, false))
             InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
         break;
     }
     case ACTION_TARGET_NEAREST_CORPSE:
     {
-        if (Unit* nearest = FindNearestMatchingUnit(bot, 40.0f, true, true))
+        if (Unit* nearest = FindNearestMatchingUnit(bot, 60.0f, true, true))
             InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
         break;
     }
@@ -1175,7 +1184,7 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
             return;
         Unit* target = bot->GetSelectedUnit();
         if (!target)
-            target = FindNearestMatchingUnit(bot, 40.0f, true, false); // §3: remove this auto-service later
+            target = FindNearestMatchingUnit(bot, 60.0f, true, false); // §3: remove this auto-service later
         InjectCMSG(CMSG_CAST_SPELL, [spellId, target](WorldPacket& pkt) {
             pkt << uint8(0);
             pkt << spellId;
