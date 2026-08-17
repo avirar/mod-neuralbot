@@ -11,9 +11,50 @@
 #include "Opcodes.h"
 #include "Map.h"
 #include "Trainer.h"
+#include "GameObject.h"
 
 #include <algorithm>
 #include <cmath>
+
+namespace
+{
+// All units (any faction, incl. corpses) in range — used for the faithful entity list.
+struct AnyUnitInRangeCheck
+{
+    AnyUnitInRangeCheck(WorldObject const* obj, float range) : i_obj(obj), i_range(range) {}
+    bool operator()(Unit* u)
+    {
+        return u && u->IsInWorld() && u != i_obj && i_obj->IsWithinDistInMap(u, i_range);
+    }
+    WorldObject const* i_obj;
+    float i_range;
+};
+
+struct AnyGameObjectInRangeCheck
+{
+    AnyGameObjectInRangeCheck(WorldObject const* obj, float range) : i_obj(obj), i_range(range) {}
+    bool operator()(GameObject* go)
+    {
+        return go && go->IsInWorld() && i_obj->IsWithinDistInMap(go, i_range);
+    }
+    WorldObject const* i_obj;
+    float i_range;
+};
+
+uint8 ComputeReaction(Unit const* bot, Unit const* u)
+{
+    if (u->IsFriendlyTo(bot))
+        return NB_REACTION_FRIENDLY;
+    if (u->IsHostileTo(bot))
+        return NB_REACTION_HOSTILE;
+    return NB_REACTION_NEUTRAL;
+}
+
+uint8 UnitEntityType(Unit const* u)
+{
+    return u->IsPlayer() ? NB_ENTITY_TYPE_PLAYER : NB_ENTITY_TYPE_CREATURE;
+}
+} // namespace
 
 NeuralBotInstance::NeuralBotInstance(Player* player, WorldSession* session)
     : _player(player), _session(session), _ready(player && session)
@@ -381,6 +422,237 @@ void NeuralBotInstance::BuildObservationInto(NeuralBotObservation& obs)
         obs.questState[7] = topProgress[1];
         obs.questState[8] = topProgress[2];
         obs.questState[9] = topProgress[3];
+    }
+}
+
+void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
+{
+    Player* bot = _player;
+    if (!bot)
+        return;
+
+    std::memset(&frame, 0, sizeof(NeuralBotFrame));
+
+    // ── self ────────────────────────────────────────────────────────────
+    NBStateSelf& self = frame.self;
+    self.guid = bot->GetGUID().GetRawValue();
+    self.level = bot->GetLevel();
+    self.health = static_cast<float>(bot->GetHealth());
+    self.maxHealth = static_cast<float>(bot->GetMaxHealth());
+    self.mana = static_cast<float>(bot->GetPower(POWER_MANA));
+    self.maxMana = static_cast<float>(bot->GetMaxPower(POWER_MANA));
+    Powers powerType = bot->getPowerType();
+    if (powerType != POWER_MANA)
+    {
+        self.resource = static_cast<float>(bot->GetPower(powerType));
+        self.maxResource = static_cast<float>(bot->GetMaxPower(powerType));
+    }
+    self.xp = bot->GetUInt32Value(PLAYER_XP);
+    self.nextLevelXp = bot->GetUInt32Value(PLAYER_NEXT_LEVEL_XP);
+    self.money = bot->GetMoney();
+    self.posX = bot->GetPositionX();
+    self.posY = bot->GetPositionY();
+    self.posZ = bot->GetPositionZ();
+    self.orientation = bot->GetOrientation();
+    self.mapId = bot->GetMapId();
+    self.zoneId = bot->GetZoneId();
+    self.areaId = bot->GetAreaId();
+    self.alive = bot->IsAlive() ? 1 : 0;
+    self.inCombat = bot->IsInCombat() ? 1 : 0;
+    self.moving = bot->isMoving() ? 1 : 0;
+    self.casting = bot->HasUnitState(UNIT_STATE_CASTING) ? 1 : 0;
+    self.inWater = bot->IsInWater() ? 1 : 0;
+    self.mounted = bot->IsMounted() ? 1 : 0;
+    self.classId = bot->getClass();
+    self.race = bot->getRace();
+    self.comboPoints = bot->GetComboPoints();
+
+    // ── target ──────────────────────────────────────────────────────────
+    if (Unit* target = bot->GetSelectedUnit())
+    {
+        NBStateTarget& t = frame.target;
+        t.guid = target->GetGUID().GetRawValue();
+        t.entry = target->GetEntry();
+        t.type = UnitEntityType(target);
+        t.health = static_cast<float>(target->GetHealth());
+        t.maxHealth = static_cast<float>(target->GetMaxHealth());
+        t.level = target->GetLevel();
+        t.dx = target->GetPositionX() - bot->GetPositionX();
+        t.dy = target->GetPositionY() - bot->GetPositionY();
+        t.dz = target->GetPositionZ() - bot->GetPositionZ();
+        t.distance = bot->GetDistance(target);
+        t.reaction = ComputeReaction(bot, target);
+        t.alive = target->IsAlive() ? 1 : 0;
+        t.inCombat = target->IsInCombat() ? 1 : 0;
+        t.casting = target->HasUnitState(UNIT_STATE_CASTING) ? 1 : 0;
+        t.npcFlags = target->ToCreature() ? static_cast<uint32_t>(target->GetNpcFlags()) : 0;
+        self.targetGuid = t.guid;
+    }
+
+    // ── entities: nearby units + gameobjects ────────────────────────────
+    std::vector<NBEntityRec> entities;
+    entities.reserve(NB_MAX_ENTITIES + 16);
+    if (bot->IsInWorld())
+    {
+        float range = 60.0f;
+
+        std::list<Unit*> units;
+        AnyUnitInRangeCheck unitCheck(bot, range);
+        Acore::UnitListSearcher<AnyUnitInRangeCheck> unitSearcher(bot, units, unitCheck);
+        Cell::VisitObjects(bot, unitSearcher, range);
+
+        for (Unit* u : units)
+        {
+            if (!u || !u->IsAlive())
+                continue;
+            NBEntityRec rec{};
+            rec.guid = u->GetGUID().GetRawValue();
+            rec.entry = u->GetEntry();
+            rec.type = UnitEntityType(u);
+            rec.level = u->GetLevel();
+            rec.health = static_cast<float>(u->GetHealth());
+            rec.maxHealth = static_cast<float>(u->GetMaxHealth());
+            rec.dx = u->GetPositionX() - bot->GetPositionX();
+            rec.dy = u->GetPositionY() - bot->GetPositionY();
+            rec.dz = u->GetPositionZ() - bot->GetPositionZ();
+            rec.distance = bot->GetDistance(u);
+            rec.reaction = ComputeReaction(bot, u);
+            rec.alive = 1;
+            rec.inCombat = u->IsInCombat() ? 1 : 0;
+            rec.casting = u->HasUnitState(UNIT_STATE_CASTING) ? 1 : 0;
+            rec.npcFlags = u->ToCreature() ? static_cast<uint32_t>(u->GetNpcFlags()) : 0;
+            entities.push_back(rec);
+        }
+
+        std::list<GameObject*> gos;
+        AnyGameObjectInRangeCheck goCheck(bot, range);
+        Acore::GameObjectListSearcher<AnyGameObjectInRangeCheck> goSearcher(bot, gos, goCheck);
+        Cell::VisitObjects(bot, goSearcher, range);
+
+        for (GameObject* go : gos)
+        {
+            if (!go)
+                continue;
+            NBEntityRec rec{};
+            rec.guid = go->GetGUID().GetRawValue();
+            rec.entry = go->GetEntry();
+            rec.type = NB_ENTITY_TYPE_GAMEOBJECT;
+            // For gameobjects, npcFlags carries the goType (role: CHEST/DOOR/QUESTGIVER/…)
+            rec.npcFlags = static_cast<uint32_t>(go->GetGoType());
+            rec.dx = go->GetPositionX() - bot->GetPositionX();
+            rec.dy = go->GetPositionY() - bot->GetPositionY();
+            rec.dz = go->GetPositionZ() - bot->GetPositionZ();
+            rec.distance = bot->GetDistance(go);
+            rec.reaction = NB_REACTION_NEUTRAL;
+            rec.alive = 1;
+            entities.push_back(rec);
+        }
+    }
+
+    std::sort(entities.begin(), entities.end(),
+        [](NBEntityRec const& a, NBEntityRec const& b) { return a.distance < b.distance; });
+
+    size_t nEntities = std::min<size_t>(entities.size(), NB_MAX_ENTITIES);
+    for (size_t i = 0; i < nEntities; ++i)
+        frame.entities[i] = entities[i];
+    frame.counts.nEntities = static_cast<uint16_t>(nEntities);
+
+    // ── spells ──────────────────────────────────────────────────────────
+    {
+        PlayerSpellMap const& spellMap = bot->GetSpellMap();
+        size_t n = 0;
+        for (auto const& [spellId, state] : spellMap)
+        {
+            if (n >= NB_MAX_SPELLS)
+                break;
+            if (state->State == PLAYERSPELL_REMOVED)
+                continue;
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+            if (!info)
+                continue;
+            NBSpellRec& rec = frame.spells[n];
+            rec.spellId = spellId;
+            rec.cooldownMs = bot->GetSpellCooldownDelay(spellId);
+            rec.ready = !bot->HasSpellCooldown(spellId) ? 1 : 0;
+            rec.cost = info->ManaCost;
+            rec.range = info->GetMaxRange(true);
+            rec.minRange = info->GetMinRange(true);
+            rec.castTimeMs = info->CastTimeEntry ? static_cast<float>(info->CastTimeEntry->CastTime) : 0.0f;
+            ++n;
+        }
+        frame.counts.nSpells = static_cast<uint16_t>(n);
+    }
+
+    // ── quests ──────────────────────────────────────────────────────────
+    {
+        size_t n = 0;
+        for (uint32 slot = 0; slot < 25 && n < NB_MAX_QUESTS; ++slot)
+        {
+            uint32 qid = bot->GetQuestSlotQuestId(slot);
+            if (!qid)
+                continue;
+            NBQuestRec& rec = frame.quests[n];
+            rec.questId = qid;
+            rec.status = static_cast<uint8_t>(bot->GetQuestStatus(qid));
+            rec.obj[0] = bot->GetQuestSlotCounter(slot, 0);
+            rec.obj[1] = bot->GetQuestSlotCounter(slot, 1);
+            rec.obj[2] = bot->GetQuestSlotCounter(slot, 2);
+            rec.obj[3] = bot->GetQuestSlotCounter(slot, 3);
+            ++n;
+        }
+        frame.counts.nQuests = static_cast<uint16_t>(n);
+    }
+
+    // ── items: nearby lootable corpses + chest gameobjects ──────────────
+    {
+        std::vector<NBItemRec> items;
+        items.reserve(NB_MAX_ITEMS + 8);
+        if (bot->IsInWorld())
+        {
+            float range = 30.0f;
+
+            std::list<Unit*> corpses;
+            AnyUnitInRangeCheck corpseCheck(bot, range);
+            Acore::UnitListSearcher<AnyUnitInRangeCheck> corpseSearcher(bot, corpses, corpseCheck);
+            Cell::VisitObjects(bot, corpseSearcher, range);
+
+            for (Unit* u : corpses)
+            {
+                if (!u || !u->IsCreature() || u->IsAlive())
+                    continue;
+                NBItemRec rec{};
+                rec.guid = u->GetGUID().GetRawValue();
+                rec.entry = u->GetEntry();
+                rec.quality = 0;
+                rec.distance = bot->GetDistance(u);
+                items.push_back(rec);
+            }
+
+            std::list<GameObject*> chests;
+            AnyGameObjectInRangeCheck chestCheck(bot, range);
+            Acore::GameObjectListSearcher<AnyGameObjectInRangeCheck> chestSearcher(bot, chests, chestCheck);
+            Cell::VisitObjects(bot, chestSearcher, range);
+
+            for (GameObject* go : chests)
+            {
+                if (!go || go->GetGoType() != GAMEOBJECT_TYPE_CHEST)
+                    continue;
+                NBItemRec rec{};
+                rec.guid = go->GetGUID().GetRawValue();
+                rec.entry = go->GetEntry();
+                rec.quality = 0;
+                rec.distance = bot->GetDistance(go);
+                items.push_back(rec);
+            }
+        }
+
+        std::sort(items.begin(), items.end(),
+            [](NBItemRec const& a, NBItemRec const& b) { return a.distance < b.distance; });
+
+        size_t nItems = std::min<size_t>(items.size(), NB_MAX_ITEMS);
+        for (size_t i = 0; i < nItems; ++i)
+            frame.items[i] = items[i];
+        frame.counts.nItems = static_cast<uint16_t>(nItems);
     }
 }
 
@@ -942,27 +1214,94 @@ NeuralBotStepResult NeuralBotInstance::Step(uint32 action)
     result.reward.total = ComputeReward(result.reward);
     BuildObservationInto(result.observation);
 
-    // Idle termination: if agent hasn't earned reward in 50 steps, end episode
-    if (result.reward.total > 0.001f)
+    UpdateIdleTracking(result.reward.total);
+
+    result.done = ShouldTerminate(result.info);
+    if (result.done)
+    {
+        static uint32 doneLogCounter = 0;
+        if (++doneLogCounter % 200 == 1)
+            LOG_INFO("module.neuralbot.debug", "Step done: '{}' reason={} reward={:.4f} stepsWo={} stepCount={}",
+                GetName(), result.info, result.reward.total, _stepsWithoutReward, _stepCount);
+    }
+    return result;
+}
+
+void NeuralBotInstance::UpdateIdleTracking(float rewardTotal)
+{
+    if (rewardTotal > 0.001f)
         _stepsWithoutReward = 0;
     else
         _stepsWithoutReward++;
+}
 
+bool NeuralBotInstance::ShouldTerminate(std::string& info)
+{
     bool timedOut = _stepCount >= _maxSteps;
     bool idle = _stepsWithoutReward >= 200;
-
-    result.done = timedOut || _diedThisStep || !_player->IsAlive() || idle;
-    if (result.done)
+    if (timedOut || _diedThisStep || (_player && !_player->IsAlive()) || idle)
     {
-        result.info = _diedThisStep ? "died" : (idle ? "idle" : "max_steps");
-
-        static uint32 doneLogCounter = 0;
-        if (++doneLogCounter % 200 == 1)
-            LOG_INFO("module.neuralbot.debug", "Step done: '{}' reason={} timedOut={} diedThisStep={} isAlive={} idle={} reward={:.4f} stepsWo={} stepCount={}",
-                GetName(), result.info, timedOut, _diedThisStep, _player ? _player->IsAlive() : false,
-                idle, result.reward.total, _stepsWithoutReward, _stepCount);
+        info = _diedThisStep ? "died" : (idle ? "idle" : "max_steps");
+        return true;
     }
+    return false;
+}
+
+void NeuralBotInstance::WriteFrameReward(NBStateReward& out, NeuralBotReward const& r)
+{
+    out.total = r.total;
+    out.components[0]  = r.xpDelta;
+    out.components[1]  = r.damageTaken;
+    out.components[2]  = r.killReward;
+    out.components[3]  = r.deathPenalty;
+    out.components[4]  = r.lootReward;
+    out.components[5]  = r.questAccepted;
+    out.components[6]  = r.questCompleted;
+    out.components[7]  = r.questProximity;
+    out.components[8]  = r.questProgress;
+    out.components[9]  = r.enemyProximity;
+    out.components[10] = r.targetAcquired;
+    out.components[11] = r.spellLearned;
+    out.components[12] = r.trainerProximity;
+    out.components[13] = r.timePenalty;
+}
+
+NeuralBotFrameResult NeuralBotInstance::StepFrame(uint32 action)
+{
+    NeuralBotFrameResult result;
+    if (!_ready || !_player || !_player->IsAlive())
+    {
+        result.done = true;
+        result.info = "Instance not ready or dead";
+        std::memset(&result.frame, 0, sizeof(NeuralBotFrame));
+        return result;
+    }
+
+    ExecuteAction(action);
+    _stepCount++;
+
+    if (_autoQuestEnabled)
+        AutoCompleteQuests();
+
+    NeuralBotReward reward;
+    reward.total = ComputeReward(reward);
+    BuildFrame(result.frame);
+    WriteFrameReward(result.frame.reward, reward);
+
+    UpdateIdleTracking(reward.total);
+
+    result.done = ShouldTerminate(result.info);
     return result;
+}
+
+NeuralBotFrame NeuralBotInstance::ResetFrame()
+{
+    if (_player)
+        ResetRewardTracking();
+    NeuralBotFrame frame;
+    std::memset(&frame, 0, sizeof(NeuralBotFrame));
+    BuildFrame(frame);
+    return frame;
 }
 
 void NeuralBotInstance::AutoAcceptQuests()

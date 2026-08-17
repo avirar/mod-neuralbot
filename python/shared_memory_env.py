@@ -1,13 +1,18 @@
 """
 SharedMemoryVecEnv: replaces 400 threads + 400 TCP sockets with one mmap region.
 
-Protocol:
+Protocol (shm v2 — faithful structured frames):
   1. Python writes 400 actions to shared memory, sets actions_ready = 1
-  2. C++ world thread processes all 400 bots, writes obs+reward+dones,
+  2. C++ world thread processes all 400 bots, writes packed NeuralBotFrame records,
      clears actions_ready, sets obs_ready = 1, signals eventfd
-  3. Python blocks on eventfd, reads all 400 obs (zero-copy numpy)
+  3. Python blocks on eventfd, reads all 400 frames (zero-copy numpy structured views)
 
 Single-threaded. No syscalls. No serialization.
+
+The wire format is the structured, entity-centric `NeuralBotFrame` (see
+src/NeuralBotFrame.h / neuralbot_client.py). The policy-facing observation is a fixed-size
+flattened projection (`OBS_FLAT_SIZE`) built from the structured records — a transformer /
+DreamerV3 policy (ROADMAP §5) will consume the records directly instead.
 """
 import mmap
 import os
@@ -15,7 +20,11 @@ import struct
 import numpy as np
 from typing import Optional, Sequence
 
-from neuralbot_client import OBS_TOTAL_SIZE, ACTION_COUNT, NUM_BOTS
+from neuralbot_client import (
+    ACTION_COUNT, NUM_BOTS, SHM_VERSION, FRAME_DTYPE, FRAME_BYTES,
+    NB_MAX_SPELLS, NB_MAX_QUESTS, NB_MAX_ENTITIES, NB_MAX_ITEMS,
+    NB_REWARD_COMPONENTS, REWARD_COMPONENT_KEYS,
+)
 from stable_baselines3.common.vec_env import VecEnv
 
 SHM_NAME = "/neuralbot_shm"
@@ -23,12 +32,9 @@ SHM_PATH = "/dev/shm/neuralbot_shm"
 
 # Must match NeuralBotSharedMem.h
 SHM_MAGIC       = 0x4E425348
-SHM_VERSION     = 1
 SHM_MAX_BOTS    = 4096
-SHM_OBS_PER_BOT = OBS_TOTAL_SIZE + 1 + 14  # obs[85] + reward + components[14] = 93
-SHM_OBS_BYTES   = SHM_OBS_PER_BOT * 4
 SHM_DONES_SIZE  = SHM_MAX_BOTS
-SHM_OBS_REGION_SIZE = SHM_MAX_BOTS * SHM_OBS_BYTES
+SHM_FRAME_REGION_SIZE = SHM_MAX_BOTS * FRAME_BYTES
 
 SHM_OFFSET_CONTROL = 0
 SHM_OFFSET_ACTIONS = 128
@@ -36,10 +42,95 @@ SHM_OFFSET_OBS     = 0x2000
 
 # NeuralBotSharedControl struct format (little-endian):
 #   magic(4) version(4) num_bots(4) step_count(4)
-#   eventfd(4) actions_ready(4) obs_ready(4) shutdown(4)
+#   eventfd(4) actions_ready(4) obs_ready(4) shutdown(4) frame_bytes(4)
 #   _pad[28]
-CTRL_FMT = "<IIIIiIII32x"
+CTRL_FMT = "<IIIIiIIII28x"
 CTRL_SIZE = struct.calcsize(CTRL_FMT)  # 64
+
+# Flat policy observation = fixed-size projection of the structured frame.
+SELF_FLAT       = 26
+TARGET_FLAT     = 14
+COUNTS_FLAT     = 4
+ENTITY_FLAT_PER = 8
+SPELL_FLAT_PER  = 7
+QUEST_FLAT_PER  = 6
+ITEM_FLAT_PER   = 3
+OBS_FLAT_SIZE = (
+    SELF_FLAT + TARGET_FLAT + COUNTS_FLAT
+    + NB_MAX_ENTITIES * ENTITY_FLAT_PER
+    + NB_MAX_SPELLS * SPELL_FLAT_PER
+    + NB_MAX_QUESTS * QUEST_FLAT_PER
+    + NB_MAX_ITEMS * ITEM_FLAT_PER
+)
+
+
+def flatten_frames(frames: np.ndarray) -> np.ndarray:
+    """Project structured frames into a fixed-size float32 tensor (num_bots, OBS_FLAT_SIZE)."""
+    num_bots = frames.shape[0]
+
+    s = frames["self"]
+    self_flat = np.stack([
+        s["level"].astype(np.float32),
+        s["health"], s["maxHealth"],
+        s["mana"], s["maxMana"],
+        s["resource"], s["maxResource"],
+        s["xp"].astype(np.float32), s["nextLevelXp"].astype(np.float32),
+        s["money"].astype(np.float32),
+        s["posX"], s["posY"], s["posZ"], s["orientation"],
+        s["mapId"].astype(np.float32), s["zoneId"].astype(np.float32), s["areaId"].astype(np.float32),
+        s["alive"].astype(np.float32), s["inCombat"].astype(np.float32),
+        s["moving"].astype(np.float32), s["casting"].astype(np.float32),
+        s["inWater"].astype(np.float32), s["mounted"].astype(np.float32),
+        s["classId"].astype(np.float32), s["race"].astype(np.float32),
+        s["comboPoints"].astype(np.float32),
+    ], axis=-1)
+
+    t = frames["target"]
+    target_flat = np.stack([
+        t["entry"].astype(np.float32), t["type"].astype(np.float32),
+        t["health"], t["maxHealth"], t["level"].astype(np.float32),
+        t["dx"], t["dy"], t["dz"], t["distance"],
+        t["reaction"].astype(np.float32), t["alive"].astype(np.float32),
+        t["inCombat"].astype(np.float32), t["casting"].astype(np.float32),
+        t["npcFlags"].astype(np.float32),
+    ], axis=-1)
+
+    c = frames["counts"]
+    counts_flat = np.stack([
+        c["nSpells"].astype(np.float32), c["nQuests"].astype(np.float32),
+        c["nEntities"].astype(np.float32), c["nItems"].astype(np.float32),
+    ], axis=-1)
+
+    e = frames["entities"]
+    entity_flat = np.stack([
+        e["entry"].astype(np.float32), e["type"].astype(np.float32),
+        e["level"].astype(np.float32), e["health"], e["maxHealth"],
+        e["distance"], e["reaction"].astype(np.float32), e["alive"].astype(np.float32),
+    ], axis=-1).reshape(num_bots, -1)
+
+    sp = frames["spells"]
+    spell_flat = np.stack([
+        sp["spellId"].astype(np.float32), sp["cooldownMs"].astype(np.float32),
+        sp["cost"].astype(np.float32), sp["range"], sp["minRange"],
+        sp["castTimeMs"], sp["ready"].astype(np.float32),
+    ], axis=-1).reshape(num_bots, -1)
+
+    q = frames["quests"]
+    quest_flat = np.stack([
+        q["questId"].astype(np.float32), q["status"].astype(np.float32),
+        q["obj"][..., 0].astype(np.float32), q["obj"][..., 1].astype(np.float32),
+        q["obj"][..., 2].astype(np.float32), q["obj"][..., 3].astype(np.float32),
+    ], axis=-1).reshape(num_bots, -1)
+
+    it = frames["items"]
+    item_flat = np.stack([
+        it["entry"].astype(np.float32), it["quality"].astype(np.float32), it["distance"],
+    ], axis=-1).reshape(num_bots, -1)
+
+    obs = np.concatenate([self_flat, target_flat, counts_flat,
+                          entity_flat, spell_flat, quest_flat, item_flat], axis=-1)
+    assert obs.shape == (num_bots, OBS_FLAT_SIZE)
+    return obs
 
 
 class SharedMemoryVecEnv(VecEnv):
@@ -56,7 +147,7 @@ class SharedMemoryVecEnv(VecEnv):
 
         import gymnasium as gym
         observation_space = gym.spaces.Box(
-            low=-1.0, high=65535.0, shape=(OBS_TOTAL_SIZE,), dtype=np.float32
+            low=-1.0, high=65535.0, shape=(OBS_FLAT_SIZE,), dtype=np.float32
         )
         action_space = gym.spaces.Discrete(ACTION_COUNT)
         super().__init__(self.num_envs, observation_space, action_space)
@@ -78,12 +169,14 @@ class SharedMemoryVecEnv(VecEnv):
 
         # Parse control struct
         ctrl = struct.unpack_from(CTRL_FMT, self._mm, SHM_OFFSET_CONTROL)
-        magic, version, num_bots, step_count, eventfd, actions_ready, obs_ready, shutdown = ctrl
+        magic, version, num_bots, step_count, eventfd, actions_ready, obs_ready, shutdown, frame_bytes = ctrl
 
         if magic != SHM_MAGIC:
             raise RuntimeError(f"Bad magic: 0x{magic:08X}, expected 0x{SHM_MAGIC:08X}")
         if version != SHM_VERSION:
             raise RuntimeError(f"Version mismatch: {version} vs {SHM_VERSION}")
+        if frame_bytes != FRAME_BYTES:
+            raise RuntimeError(f"Frame size mismatch: shm={frame_bytes} python={FRAME_BYTES}")
 
         self.num_bots  = num_bots
         self.eventfd   = eventfd
@@ -98,18 +191,17 @@ class SharedMemoryVecEnv(VecEnv):
             count=self.num_bots, offset=SHM_OFFSET_ACTIONS
         )
 
-        # Observations: read as float32 zero-copy view
-        obs_buf = np.frombuffer(
-            self._mm, dtype=np.float32,
-            count=self.num_bots * SHM_OBS_PER_BOT, offset=SHM_OFFSET_OBS
+        # Observations: structured NeuralBotFrame records, zero-copy view
+        self._frames = np.frombuffer(
+            self._mm, dtype=FRAME_DTYPE,
+            count=self.num_bots, offset=SHM_OFFSET_OBS
         )
-        self._obs_all = obs_buf.reshape(self.num_bots, SHM_OBS_PER_BOT)
 
         # Dones: uint8
         self._dones = np.frombuffer(
             self._mm, dtype=np.uint8,
             count=self.num_bots,
-            offset=SHM_OFFSET_OBS + SHM_OBS_REGION_SIZE
+            offset=SHM_OFFSET_OBS + SHM_FRAME_REGION_SIZE
         )
 
         # Control field offsets
@@ -130,16 +222,16 @@ class SharedMemoryVecEnv(VecEnv):
         """Block until server processes actions, then read results."""
         self._wait_eventfd()
 
-        # Read results (copy to avoid aliasing — C++ may overwrite next round)
-        obs = np.array(self._obs_all[:, :OBS_TOTAL_SIZE], copy=True)
-        rewards = np.array(self._obs_all[:, OBS_TOTAL_SIZE], copy=True)
-        components = np.array(self._obs_all[:, OBS_TOTAL_SIZE + 1:], copy=True)
+        frames = self._frames[:self.num_bots]
+        obs = flatten_frames(frames)
+        rewards = np.array(frames["reward"]["total"], copy=True)
+        components = np.array(frames["reward"]["components"], copy=True)
         dones = self._dones[:self.num_bots].copy().astype(bool)
 
         # Clear obs_ready so C++ can signal next time
         self._set_flag("obs_ready", 0)
 
-        infos = self._build_infos(components, dones)
+        infos = self._build_infos(components)
         return obs, rewards, dones, infos
 
     def step(self, actions: np.ndarray):
@@ -149,7 +241,7 @@ class SharedMemoryVecEnv(VecEnv):
 
     def reset(self):
         """No individual reset needed. Returns dummy obs for API compat."""
-        return np.zeros((self.num_envs, OBS_TOTAL_SIZE), dtype=np.float32)
+        return np.zeros((self.num_envs, OBS_FLAT_SIZE), dtype=np.float32)
 
     def close(self):
         if self._closed:
@@ -158,7 +250,7 @@ class SharedMemoryVecEnv(VecEnv):
         self._set_flag("shutdown", 1)
         if hasattr(self, '_mm') and self._mm:
             # Release numpy views before closing mmap to avoid BufferError
-            for attr in ('_actions', '_obs_all', '_dones'):
+            for attr in ('_actions', '_frames', '_dones'):
                 if hasattr(self, attr):
                     delattr(self, attr)
             self._mm.close()
@@ -178,17 +270,13 @@ class SharedMemoryVecEnv(VecEnv):
 
     # ─── Helpers ─────────────────────────────────────────────────────
 
-    def _build_infos(self, components: np.ndarray, dones: np.ndarray) -> list:
-        keys = [
-            "xp", "damage_taken", "kill", "death", "loot",
-            "quest_accepted", "quest_completed", "quest_proximity",
-            "quest_progress", "enemy_proximity", "target_acquired",
-            "spell_learned", "trainer_proximity", "time_penalty",
-        ]
+    def _build_infos(self, components: np.ndarray) -> list:
         infos = []
         for i in range(self.num_bots):
             info = {}
-            info["reward_components"] = {k: float(components[i, j]) for j, k in enumerate(keys)}
+            info["reward_components"] = {
+                key: float(components[i, j]) for j, key in enumerate(REWARD_COMPONENT_KEYS)
+            }
             infos.append(info)
         return infos
 

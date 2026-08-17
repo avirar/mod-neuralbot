@@ -61,6 +61,110 @@ def generate_bot_name(index: int) -> str:
 BOT_NAMES = [generate_bot_name(i) for i in range(NUM_BOTS)]
 
 
+# ── Faithful structured frame (shm protocol v2) ─────────────────────────
+# Mirrors src/NeuralBotFrame.h byte-for-byte. All dtypes use the numpy default
+# align=False (packed), matching the C++ #pragma pack(1) wire structs. FRAME_BYTES
+# is cross-checked against the control block's `frame_bytes` field at connect time.
+
+SHM_VERSION = 2
+
+NB_MAX_SPELLS = 64
+NB_MAX_QUESTS = 16
+NB_MAX_ENTITIES = 64
+NB_MAX_ITEMS = 16
+NB_REWARD_COMPONENTS = 14
+
+NB_ENTITY_TYPE_NONE = 0
+NB_ENTITY_TYPE_CREATURE = 1
+NB_ENTITY_TYPE_PLAYER = 2
+NB_ENTITY_TYPE_GAMEOBJECT = 3
+
+NB_REACTION_NEUTRAL = 0
+NB_REACTION_HOSTILE = 1
+NB_REACTION_FRIENDLY = 2
+
+SELF_DTYPE = np.dtype([
+    ("guid", "<u8"),
+    ("level", "<u4"),
+    ("health", "<f4"), ("maxHealth", "<f4"),
+    ("mana", "<f4"), ("maxMana", "<f4"),
+    ("resource", "<f4"), ("maxResource", "<f4"),
+    ("xp", "<u4"), ("nextLevelXp", "<u4"),
+    ("money", "<u4"),
+    ("posX", "<f4"), ("posY", "<f4"), ("posZ", "<f4"), ("orientation", "<f4"),
+    ("mapId", "<u4"), ("zoneId", "<u4"), ("areaId", "<u4"),
+    ("alive", "<u1"), ("inCombat", "<u1"), ("moving", "<u1"), ("casting", "<u1"),
+    ("inWater", "<u1"), ("mounted", "<u1"), ("classId", "<u1"), ("race", "<u1"),
+    ("comboPoints", "<u4"),
+    ("targetGuid", "<u8"),
+])
+
+TARGET_DTYPE = np.dtype([
+    ("guid", "<u8"),
+    ("entry", "<u4"),
+    ("type", "<u1"),
+    ("health", "<f4"), ("maxHealth", "<f4"),
+    ("level", "<u4"),
+    ("dx", "<f4"), ("dy", "<f4"), ("dz", "<f4"), ("distance", "<f4"),
+    ("reaction", "<u1"), ("alive", "<u1"), ("inCombat", "<u1"), ("casting", "<u1"),
+    ("npcFlags", "<u4"),
+])
+
+COUNTS_DTYPE = np.dtype([
+    ("nSpells", "<u2"), ("nQuests", "<u2"), ("nEntities", "<u2"), ("nItems", "<u2"),
+])
+
+SPELL_DTYPE = np.dtype([
+    ("spellId", "<u4"), ("cooldownMs", "<u4"), ("cost", "<u4"),
+    ("range", "<f4"), ("minRange", "<f4"), ("castTimeMs", "<f4"),
+    ("ready", "<u1"), ("pad", "<u1", (3,)),
+])
+
+QUEST_DTYPE = np.dtype([
+    ("questId", "<u4"), ("status", "<u1"), ("pad", "<u1", (3,)),
+    ("obj", "<u2", (4,)),
+])
+
+ENTITY_DTYPE = np.dtype([
+    ("guid", "<u8"), ("entry", "<u4"), ("type", "<u1"), ("pad", "<u1", (3,)),
+    ("level", "<u4"),
+    ("health", "<f4"), ("maxHealth", "<f4"),
+    ("dx", "<f4"), ("dy", "<f4"), ("dz", "<f4"), ("distance", "<f4"),
+    ("reaction", "<u1"), ("alive", "<u1"), ("inCombat", "<u1"), ("casting", "<u1"),
+    ("npcFlags", "<u4"),
+])
+
+ITEM_DTYPE = np.dtype([
+    ("guid", "<u8"), ("entry", "<u4"), ("quality", "<u1"), ("pad", "<u1", (3,)),
+    ("distance", "<f4"),
+])
+
+REWARD_DTYPE = np.dtype([
+    ("total", "<f4"),
+    ("components", "<f4", (NB_REWARD_COMPONENTS,)),
+])
+
+FRAME_DTYPE = np.dtype([
+    ("self", SELF_DTYPE),
+    ("target", TARGET_DTYPE),
+    ("counts", COUNTS_DTYPE),
+    ("spells", SPELL_DTYPE, (NB_MAX_SPELLS,)),
+    ("quests", QUEST_DTYPE, (NB_MAX_QUESTS,)),
+    ("entities", ENTITY_DTYPE, (NB_MAX_ENTITIES,)),
+    ("items", ITEM_DTYPE, (NB_MAX_ITEMS,)),
+    ("reward", REWARD_DTYPE),
+])
+
+FRAME_BYTES = FRAME_DTYPE.itemsize
+
+REWARD_COMPONENT_KEYS = [
+    "xp", "damage_taken", "kill", "death", "loot",
+    "quest_accepted", "quest_completed", "quest_proximity",
+    "quest_progress", "enemy_proximity", "target_acquired",
+    "spell_learned", "trainer_proximity", "time_penalty",
+]
+
+
 class NeuralBotClient:
     def __init__(self, host="127.0.0.1", port=9000, bot_name="NeuralbotA"):
         self.host = host

@@ -59,16 +59,28 @@ NeuralBot injects client packets **server-side** to control hundreds of bot char
 | `python/shared_memory_env.py` | `SharedMemoryVecEnv` (VecEnv over shm) |
 | `python/neuralbot_client.py` | Obs/action constants and legacy TCP client |
 
-## Observation space (85 floats)
+## Observation space (structured frame, v0.3.0)
 
-| Group | Size | Offsets | Contents |
-|-------|------|---------|----------|
-| `playerState` | 20 | 0–19 | health, mana, rage, level, position, orientation, money, zone, target (presence/health/level/dist/hostile), alive, moving, XP, XP progress, map |
-| `nearbyUnits` | 5 × 8 | 20–59 | 5 nearest unfriendly units: health, level, distance, hostile, in-combat, is-player, entry, alive |
-| `combatState` | 15 | 60–74 | in-combat, casting, stunned, dead, stand state, 5 spell-slot cooldown flags, trainer info (dist, in-range, learnable, affordable, present) |
-| `questState` | 10 | 75–84 | quest count, nearest quest-giver/ender distance, completable, best progress, top-4 progress |
+The observation is a faithful, entity-centric frame (`src/NeuralBotFrame.h`), exchanged
+over shared memory as packed records. Real game values, no normalization.
 
-Observation constants are defined in `src/NeuralBotCommon.h` and mirrored in `python/neuralbot_client.py`.
+| Section | Count | Contents |
+|---------|-------|----------|
+| `self` | 1 | guid, level, health/mana/resource + maxes, xp/next-level-xp, money, pos+orientation, map/zone/area, alive/inCombat/moving/casting/inWater/mounted, class/race, combo points, target guid |
+| `target` | 1 | guid, entry, type, health/max, level, dx/dy/dz, distance, reaction, flags, npcFlags |
+| `spells` | ≤64 | spellId, cooldownMs, ready, cost, range/minRange, castTimeMs (full spellbook) |
+| `quests` | ≤16 | questId, status, objective counters |
+| `entities` | ≤64 | nearby creatures/players/gameobjects, typed with real faction reaction |
+| `items` | ≤16 | nearby lootable corpses + chest gameobjects |
+
+The wire layout is packed (`FRAME_BYTES = 5909`), `SHM_VERSION = 2`, with the control
+block carrying `frame_bytes` for schema negotiation. Byte-accurate sizes are enforced by
+`static_assert` in C++ and a `dtype.itemsize` check in Python.
+
+For the SBX PPO `MlpPolicy`, `SharedMemoryVecEnv` projects each frame to a fixed tensor
+(`OBS_FLAT_SIZE = 1148`). A transformer/DreamerV3 policy (ROADMAP §5) will consume the
+structured records directly. The legacy 85-float vector still exists for the TCP
+`NeuralBotWSHandler` path (unused by training).
 
 ## Action space (16 discrete actions)
 
@@ -120,12 +132,10 @@ The remaining components are computed but **diagnostic-only** (logged to
 
 | Offset | Field |
 |--------|-------|
-| `0x0000` | control block (magic, version, bot count, step count, eventfd, `actions_ready`, `obs_ready`, `shutdown`) |
+| `0x0000` | control block (magic, version, bot count, step count, eventfd, `actions_ready`, `obs_ready`, `shutdown`, `frame_bytes`) |
 | `0x0080` | `actions[4096]` (`uint8`) |
-| `0x2000` | `obs_flat[4096 × 100]` (`float32`) — per bot: 85 obs + total reward + 14 components |
+| `0x2000` | `frames[4096]` (`NeuralBotFrame`, packed `FRAME_BYTES` = 5909 each) |
 | end | `dones[4096]` (`uint8`) |
-
-`SHM_OBS_PER_BOT = OBS_TOTAL_SIZE + 1 + 14 = 100`.
 
 ## Requirements
 
@@ -197,8 +207,9 @@ NeuralBot registers a `PlayerbotScript` (`OnPlayerbotPacketSent`) and therefore 
 ## Known issues
 
 - **Spell learning unreliable.** Bots find trainers but often fail the 5-yard interaction check (`ACTION_LEARN_SPELL` used heavily, zero spells learned in some runs). No friendly-targeting/navigation action exists to close the gap.
-- **`neuralbot_client.py` / `NeuralBotWSHandler.cpp` are legacy.** The TCP path is superseded by shared memory and kept only for debug/status.
-- **Fixed 85-float state.** The state is still a hand-picked flat vector; the structured, entity-centric schema is specified in `DESIGN.md` and tracked in `ROADMAP.md` (§1).
+- **`neuralbot_client.py` / `NeuralBotWSHandler.cpp` are legacy.** The TCP path is superseded by shared memory and kept only for debug/status. It still uses the old 85-float observation.
+- **Ground items are approximated.** The frame `items` section currently lists corpses + chest gameobjects, not individual `Item` world objects (tracked in ROADMAP §1 follow-up).
+- **MLP interim.** The policy still consumes a flattened projection of the structured frame; a transformer (DreamerV3) will consume the records directly (ROADMAP §5).
 
 ## Repository layout & git workflow
 

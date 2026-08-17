@@ -22,18 +22,22 @@ That — not the GPU — is the moat. The 5090 accelerates the world model.
 
 ---
 
-## 1. Faithful state representation — P0
+## 1. Faithful state representation — P0 — ✅ DONE (2026-08-18)
 
 Replace the fixed 85-float vector with a structured, entity-centric observation the
 agent can actually reason over.
 
-- [ ] Variable-length entity list: self, target, nearby units, nearby NPCs, quests,
-      loot, trainers — each with type-tagged features.
-- [ ] Emit *real* values (health, position, level, faction, NPC flag, quest state) —
-      not normalized hand-picked scalars.
-- [ ] Structured message format over shared memory (protobuf/Cap'n'Proto or a
-      length-prefixed binary layout) replacing the flat `float[4096×100]` region.
-- [ ] Python side parses into dicts/tensors for a transformer policy.
+- [x] Variable-length entity list: self, target, nearby units, nearby NPCs, quests,
+      loot, trainers — each with type-tagged features. Emitted as capped packed records
+      over shm (`self`/`target`/`counts` + `spells[64]` + `quests[16]` + `entities[64]`
+      + `items[16]` + reward tail, `src/NeuralBotFrame.h`).
+- [x] Emit *real* values (health, position, level, faction, NPC flag, quest state) —
+      not normalized hand-picked scalars. Gameobjects typed by `GetGoType()`; reaction
+      from the real faction model (`IsHostileTo`/`IsFriendlyTo`).
+- [x] Structured message format over shared memory (packed binary layout) replacing the
+      flat `float[4096×100]` region. `SHM_VERSION = 2`; control block carries `frame_bytes`.
+- [x] Python parses into structured records (`np.frombuffer` + dtypes) and projects to a
+      fixed tensor for `MlpPolicy` (transformer consumes records directly in §5).
 
 ## 2. Native reward — P0 — ✅ DONE (2026-08-17)
 
@@ -99,12 +103,14 @@ Let the agent act; stop scripting the world for it.
 
 ---
 
-## Status snapshot (2026-08-17)
+## Status snapshot (2026-08-18)
 
 - PPO + shared memory + MySQL: **done** (v0.1.0).
 - Native reward (§2): **done** (v0.2.0). Shaping terms are now diagnostic-only.
-- Research + design: **done** — `DESIGN.md` specifies the faithful state schema, action
-  rework, and shm v2.
-- Remaining rebuild work, in order: §1 (structured state), §3 (kill auto-services),
-  §4 (action rework), §5 (DreamerV3), §6 (spell learning).
+- Faithful structured state (§1): **done** (v0.3.0). Packed entity-centric frame over
+  shm v2; `MlpPolicy` consumes a flattened projection until DreamerV3.
+- Research + design: **done** — `DESIGN.md` specifies the state schema, action rework,
+  and shm v2.
+- Remaining rebuild work, in order: §3 (kill auto-services), §4 (action rework),
+  §5 (DreamerV3), §6 (spell learning).
 - Earlier: iter 1–4 trained; kills/loot/xp all climbing; spell learning blocked.

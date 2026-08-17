@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from sbx import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
-from shared_memory_env import SharedMemoryVecEnv, SHM_OBS_PER_BOT
+from shared_memory_env import SharedMemoryVecEnv, OBS_FLAT_SIZE, FRAME_BYTES
 from neuralbot_client import ACTION_COUNT, NUM_BOTS
 
 log = logging.getLogger("train_v3")
@@ -164,7 +164,7 @@ def main():
     buffer_size = 256 * num_bots
     batch_size = 1024
 
-    print(f"SharedMemoryVecEnv ready: {num_bots} bots, {SHM_OBS_PER_BOT} floats/bot")
+    print(f"SharedMemoryVecEnv ready: {num_bots} bots, {OBS_FLAT_SIZE} obs dims, {FRAME_BYTES} bytes/frame")
     print(f"Buffer: {buffer_size} samples, {buffer_size // batch_size} minibatches")
     print(f"Training PPO for {timesteps} timesteps using {num_bots} parallel envs...")
     print(f"Episode stats → MySQL {DB_CONFIG['host']}/{DB_CONFIG['database']}.neuralbot_episodes", flush=True)

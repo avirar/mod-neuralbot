@@ -136,11 +136,35 @@ learned through these signals, not hand-shaped.
 
 ## Migration phases
 
-1. **Native reward** — delete shaping terms from `ComputeReward` (small, isolated).
-2. **Structured state** — new frame schema in C++ (`BuildObservationInto` → builder) +
-   Python parser (`shared_memory_env.py`).
+1. **Native reward** — delete shaping terms from `ComputeReward` (small, isolated). ✅ (v0.2.0)
+2. **Structured state** — new frame schema in C++ (`BuildFrame`) + Python parser
+   (`shared_memory_env.py`). ✅ (v0.3.0)
 3. **Auto-services off** — remove `AutoQuest`, auto-target, auto-loot paths.
 4. **Action rework** — point-nav + indexed targeting + spellbook-index casting.
 5. **DreamerV3** — swap policy; world model learns real dynamics.
 
 Each phase is a separately buildable, testable commit (see `CHANGELOG.md`).
+
+---
+
+## Implemented frame layout (v0.3.0)
+
+The structured frame is now live in `src/NeuralBotFrame.h` (packed `#pragma pack(1)`,
+mirrored byte-for-byte in `python/neuralbot_client.py` numpy dtypes). Byte-accurate sizes
+(enforced by C++ `static_assert` + Python `itemsize` check at connect time):
+
+| Section | Size | Records |
+|---|---|---|
+| `self` | 96 B | guid, level, health/max, mana/max, resource/max, xp, nextLevelXp, money, pos+orientation, map/zone/area, alive/inCombat/moving/casting/inWater/mounted, class/race, comboPoints, targetGuid |
+| `target` | 49 B | guid, entry, type, health/max, level, dx/dy/dz, distance, reaction, alive/inCombat/casting, npcFlags |
+| `counts` | 8 B | n_spells, n_quests, n_entities, n_items |
+| `spells[64]` | 28 B ea | spellId, cooldownMs, ready, cost, range/minRange, castTimeMs |
+| `quests[16]` | 16 B ea | questId, status, obj[0..3] |
+| `entities[64]` | 52 B ea | guid, entry, type, level, health/max, dx/dy/dz, distance, reaction, alive/inCombat/casting, npcFlags (goType for gameobjects) |
+| `items[16]` | 20 B ea | guid, entry, quality, distance (corpses + chest gameobjects) |
+| `reward` | 60 B | total + 14 diagnostic components |
+
+Total `FRAME_BYTES` = 5909 (~24 MB shm region at 4096 bots). `SHM_VERSION = 2`; the
+control block carries `frame_bytes` for schema negotiation. The policy still consumes a
+fixed flattened projection (`OBS_FLAT_SIZE = 1148`) until the DreamerV3 transformer
+consumes the records directly.

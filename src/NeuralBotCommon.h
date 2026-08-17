@@ -13,6 +13,7 @@
 #include "Config.h"
 #include "Chat.h"
 #include "Map.h"
+#include "NeuralBotFrame.h"
 #include <vector>
 #include <deque>
 #include <mutex>

@@ -57,14 +57,15 @@ bool NeuralBotSharedMem::Create(uint32_t numBots)
     ctrl->actions_ready = 0;
     ctrl->obs_ready     = 0;
     ctrl->shutdown      = 0;
+    ctrl->frame_bytes   = SHM_FRAME_BYTES;
 
     std::memset(GetActionPtr(), 0, SHM_ACTIONS_SIZE);
-    std::memset(GetObsPtr(),   0, SHM_OBS_REGION_SIZE);
-    std::memset(GetDonesPtr(), 0, SHM_DONES_SIZE);
+    std::memset(GetFramesPtr(), 0, SHM_FRAME_REGION_SIZE);
+    std::memset(GetDonesPtr(),  0, SHM_DONES_SIZE);
 
     LOG_INFO("module.neuralbot",
-        "Shared memory created: {} ({} KB, {} bots, obs_per_bot={})",
-        _name, SHM_TOTAL_SIZE / 1024, numBots, SHM_OBS_PER_BOT);
+        "Shared memory created: {} ({} KB, {} bots, frame_bytes={})",
+        _name, SHM_TOTAL_SIZE / 1024, numBots, SHM_FRAME_BYTES);
     return true;
 }
 
@@ -95,12 +96,12 @@ bool NeuralBotSharedMem::TryReadActions(uint8_t* outActions, size_t numBots)
     return true;
 }
 
-void NeuralBotSharedMem::WriteObservations(const float* obsFlat, const uint8_t* dones, size_t numBots)
+void NeuralBotSharedMem::WriteFrames(const uint8_t* frames, const uint8_t* dones, size_t numBots)
 {
     if (!_ptr) return;
 
-    std::memcpy(GetObsPtr(),   obsFlat, numBots * SHM_OBS_PER_BOT * sizeof(float));
-    std::memcpy(GetDonesPtr(), dones,   numBots * sizeof(uint8_t));
+    std::memcpy(GetFramesPtr(), frames, numBots * SHM_FRAME_BYTES);
+    std::memcpy(GetDonesPtr(),  dones,  numBots * sizeof(uint8_t));
 }
 
 void NeuralBotSharedMem::SignalObservationsReady()

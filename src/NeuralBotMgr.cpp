@@ -107,38 +107,23 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
     if (!sNeuralBotShm.TryReadActions(actions, _botCount))
         return;
 
-    static float obsFlat[SHM_MAX_BOTS * SHM_OBS_PER_BOT];
+    static uint8_t frames[SHM_MAX_BOTS * SHM_FRAME_BYTES];
     static uint8_t dones[SHM_MAX_BOTS];
-    size_t off = OBS_TOTAL_SIZE;
+    float bot0Reward = 0.0f;
 
     for (uint32_t i = 0; i < _botCount; ++i)
     {
-        float* botObs = obsFlat + i * SHM_OBS_PER_BOT;
+        uint8_t* botFrame = frames + i * SHM_FRAME_BYTES;
 
         auto it = _instances.find(_botOrder[i]);
         if (it != _instances.end())
         {
-            NeuralBotStepResult result = it->second->Step(static_cast<uint32>(actions[i]));
+            NeuralBotFrameResult result = it->second->StepFrame(static_cast<uint32>(actions[i]));
 
-            result.observation.ToFloatArray(botObs);
-            botObs[off] = result.reward.total;
-
-            botObs[off + 1]  = result.reward.xpDelta;
-            botObs[off + 2]  = result.reward.damageTaken;
-            botObs[off + 3]  = result.reward.killReward;
-            botObs[off + 4]  = result.reward.deathPenalty;
-            botObs[off + 5]  = result.reward.lootReward;
-            botObs[off + 6]  = result.reward.questAccepted;
-            botObs[off + 7]  = result.reward.questCompleted;
-            botObs[off + 8]  = result.reward.questProximity;
-            botObs[off + 9]  = result.reward.questProgress;
-            botObs[off + 10] = result.reward.enemyProximity;
-            botObs[off + 11] = result.reward.targetAcquired;
-            botObs[off + 12] = result.reward.spellLearned;
-            botObs[off + 13] = result.reward.trainerProximity;
-            botObs[off + 14] = result.reward.timePenalty;
-
+            std::memcpy(botFrame, &result.frame, SHM_FRAME_BYTES);
             dones[i] = result.done ? 1 : 0;
+            if (i == 0)
+                bot0Reward = result.frame.reward.total;
 
             // When episode ends, reset tracking so next step starts fresh
             if (result.done)
@@ -146,22 +131,20 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
         }
         else
         {
-            std::memset(botObs, 0, SHM_OBS_BYTES);
+            std::memset(botFrame, 0, SHM_FRAME_BYTES);
             dones[i] = 1;
-            botObs[80] = -1.0f;
         }
     }
 
-    sNeuralBotShm.WriteObservations(obsFlat, dones, _botCount);
+    sNeuralBotShm.WriteFrames(frames, dones, _botCount);
     sNeuralBotShm.SignalObservationsReady();
 
-    // Debug: sample bot 0 reward components every 100 steps
+    // Debug: sample bot 0 reward every 100 steps
     static uint32 stepSampleCounter = 0;
     if (++stepSampleCounter % 100 == 1)
     {
-        float* b0 = obsFlat; // bot 0
-        LOG_INFO("module.neuralbot.debug", "SHM step {} bot[0]={} reward={:.4f} kill={:.4f} death={:.4f} xp={:.4f} spell={:.4f} done={}",
-            stepSampleCounter, _botOrder[0], b0[off], b0[off + 3], b0[off + 4], b0[off + 1], b0[off + 12], dones[0]);
+        LOG_INFO("module.neuralbot.debug", "SHM step {} bot[0]={} reward={:.4f} done={}",
+            stepSampleCounter, _botOrder[0], bot0Reward, dones[0]);
     }
 }
 

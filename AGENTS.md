@@ -53,31 +53,48 @@ NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
   (`std::__throw_bad_alloc` removed). Fix is one line: `throw std::bad_alloc();` in
   `deps/jemalloc/src/jemalloc_cpp.cpp` — **already fixed in upstream azerothcore**, so
   after syncing you don't need the local patch.
+- **Build dir is `var/build/obj`** (not the root `build/`, which is a stale dead tree).
+  `acore.sh compiler build` = cmake configure + incremental compile; it re-globs module
+  sources each time, so **new `.cpp` files are picked up automatically**.
+- **World DB migration backlog.** After the upstream sync the `acore_world` DB is far
+  behind (~600 pending `db_world` updates, up to `2026_08_07`). On startup the
+  worldserver applies them one-by-one (several minutes) before it listens on 8085; it is
+  resumable, so re-running continues where it left off. Don't mistake the quiet console
+  for a hang — see logging note.
+- **Console logging is filtered to Error level** by default in the local
+  `env/dist/etc/worldserver.conf` (`Appender.Console=1,2,0`). Bumped to `1,4,0` (Info)
+  on 2026-08-18 so the terminal shows detail; the full log still goes to
+  `env/dist/bin/Server.log` (Debug level). `Errors.log` is empty unless there are errors.
 - **No submodules.** `deps/*` and `modules/*` are plain tracked dirs / separate repos.
 - **DB:** `acore:abc@127.0.0.1:3306`, databases `acore_auth` / `acore_characters` /
-  `acore_world`.
+  `acore_world`. MySQL runs on the host (port 3306), not the `ac-database` docker
+  service.
 - **Git creds:** HTTPS via `~/.git-credentials` (user `avirar`). `gh` CLI token is stale;
   use git, not gh.
+- **Storage:** overflow (old logs, generated weights/checkpoints) can go to `~/NAS/temp`.
 
-## Current state (2026-08-17)
+## Current state (2026-08-18)
 
 Done:
 - PPO + shared-memory IPC + MySQL episode logging (v0.1.0).
 - **Native reward** (v0.2.0): `total = XP + gold + level + quest_complete − death`;
   shaping terms are diagnostic-only.
+- **Faithful structured state** (v0.3.0): packed entity-centric `NeuralBotFrame` over
+  shm v2 (`src/NeuralBotFrame.h`, `FRAME_BYTES=5909`, `SHM_VERSION=2`, `frame_bytes` in
+  control block). `NeuralBotInstance::StepFrame/BuildFrame`, `NeuralBotMgr` writes
+  frames, Python parses via numpy structured dtypes and projects to `OBS_FLAT_SIZE=1148`
+  for `MlpPolicy`. Legacy 85-float/TCP path still compiles (unused).
 - Research + `DESIGN.md` (faithful state schema, action rework, shm v2).
 - Git forks (`avirar/{azerothcore-wotlk,mod-playerbots,mod-neuralbot}`) set up and synced
   to latest upstream.
 
 Next (in order, from `ROADMAP.md`):
-1. **§1 Faithful structured state** — replace the 85-float vector with entity-centric
-   records over shm (spec in `DESIGN.md`). Touches `NeuralBotCommon.h`,
-   `NeuralBotInstance.cpp` (`BuildObservationInto`), `NeuralBotMgr.cpp` (shm write),
-   `shared_memory_env.py`, `neuralbot_client.py`.
-2. **§3 Kill auto-services** — remove `AutoQuest`, auto-target, auto-loot.
-3. **§4 Action rework** — point-nav + entity-index targeting + spellbook-index casting.
-4. **§5 DreamerV3** — official `danijar/dreamerv3` (JAX), world model over real state.
-5. **§6 Fix spell learning** — bots can't close the 5-yard trainer interaction.
+1. **§3 Kill auto-services** — remove `AutoQuest`, auto-target, auto-loot.
+2. **§4 Action rework** — point-nav + entity-index targeting + spellbook-index casting
+   (now unblocked: the frame carries entity guids/indices).
+3. **§5 DreamerV3** — official `danijar/dreamerv3` (JAX), world model over real state
+   (consume the structured records directly, drop the flattened projection).
+4. **§6 Fix spell learning** — bots can't close the 5-yard trainer interaction.
 
 ## Conventions
 
@@ -86,5 +103,6 @@ Next (in order, from `ROADMAP.md`):
 - Comments are welcome; document intent (the `// ── native ──` style is fine).
 - C++: 4-space indent, no tabs (matches AzerothCore `.editorconfig`).
 - The module has no upstream; `origin` (`avirar/mod-neuralbot`) **is** the source of truth.
-- Reward/obs schema changes must stay in sync across `NeuralBotCommon.h`,
-  `NeuralBotMgr.cpp`, `shared_memory_env.py`, and `neuralbot_client.py`.
+- Reward/obs schema changes must stay in sync across `NeuralBotFrame.h` (packed wire
+  structs, `static_assert` sizes), `NeuralBotMgr.cpp` (frame write), `shared_memory_env.py`
+  and `neuralbot_client.py` (numpy dtypes — keep `align=False`, verify `FRAME_BYTES`).

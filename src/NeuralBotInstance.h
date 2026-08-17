@@ -23,6 +23,10 @@ public:
 
     NeuralBotStepResult Step(uint32 action);
     NeuralBotObservation Reset();
+
+    NeuralBotFrameResult StepFrame(uint32 action);
+    NeuralBotFrame ResetFrame();
+
     void RecordOpcode(uint16 opcode);
 
     void SetSpellSlot(size_t index, uint32 spellId);
@@ -53,10 +57,14 @@ public:
 
 private:
     void BuildObservationInto(NeuralBotObservation& obs);
+    void BuildFrame(NeuralBotFrame& frame);
     void ExecuteAction(uint32 action);
     void InjectCMSG(uint16 opcode, std::function<void(WorldPacket&)> filler);
     float ComputeReward(NeuralBotReward& out);
     void AutoCompleteQuests();
+    void UpdateIdleTracking(float rewardTotal);
+    bool ShouldTerminate(std::string& info);
+    void WriteFrameReward(NBStateReward& out, NeuralBotReward const& r);
 
     Player* _player = nullptr;
     WorldSession* _session = nullptr;

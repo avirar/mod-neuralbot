@@ -7,11 +7,35 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 ## [Unreleased]
 
 ### Planned
-- Faithful structured entity state (variable-length, transformer policy) replacing the fixed 85-float vector (spec: `DESIGN.md`).
-- Model-based RL (DreamerV3) as a successor/alternative to PPO.
+- Model-based RL (DreamerV3) as a successor/alternative to PPO, consuming the structured frame records directly.
 - Reliable spell learning (friendly-targeting / trainer navigation).
 - Curriculum across classes and starting zones.
 - Remove auto-services (AutoQuest / auto-target / auto-loot).
+- True ground-item (`Item`) scan in the frame `items` section (currently corpses + chest gameobjects).
+
+## [0.3.0] — 2026-08-18
+
+### Added
+- **Faithful structured observation frame** (`src/NeuralBotFrame.h`), replacing the flat 85-float vector on the shared-memory path. Per-bot frame is packed (`#pragma pack(1)`, 5909 bytes):
+  - `self` (96 B) — guid, level, health/mana/resource + maxes, xp/next-level-xp, money, pos+orientation, map/zone/area, alive/inCombat/moving/casting/inWater/mounted, class/race, combo points, target guid.
+  - `target` (49 B) — guid, entry, type, health/max, level, dx/dy/dz, distance, reaction, flags, npcFlags.
+  - `counts` (8 B) — n_spells/n_quests/n_entities/n_items.
+  - `spells[64]` (28 B each) — spellId, cooldownMs, ready, cost, range/minRange, castTimeMs (full spellbook).
+  - `quests[16]` (16 B each) — questId, status, obj[0..3] counters.
+  - `entities[64]` (52 B each) — nearby creatures/players/gameobjects, typed (`NB_ENTITY_TYPE_*`) with real faction `reaction` (`NB_REACTION_*`); for gameobjects `npcFlags` carries `GetGoType()`.
+  - `items[16]` (20 B each) — nearby lootable corpses + chest gameobjects.
+  - `reward` tail (60 B) — native total + 14 diagnostic components.
+- Real values, no normalization. Entity/action semantics are now available for the entity-index actions (ROADMAP §4).
+- `SHM_VERSION = 2` and the control block carries `frame_bytes` for cross-language schema negotiation (C++ `static_assert` + Python `dtype.itemsize` check).
+- `NeuralBotInstance::StepFrame`/`ResetFrame`/`BuildFrame` alongside the legacy `Step`/`Reset`.
+
+### Changed
+- Shared-memory obs region: `float[4096×100]` → packed `NeuralBotFrame[4096]` (`SHM_FRAME_BYTES` = 5909, ~24 MB region).
+- `SharedMemoryVecEnv` parses structured frames via numpy structured dtypes and exposes a fixed flattened projection (`OBS_FLAT_SIZE` = 1148) for `MlpPolicy`. A transformer/DreamerV3 policy (§5) will consume the records directly.
+- `NeuralBotMgr::ProcessSharedMemoryStep` writes frames via `StepFrame`; reward components are serialized once in `WriteFrameReward`.
+
+### Kept
+- Legacy 85-float `NeuralBotObservation`/`ToFloatArray` and the TCP `NeuralBotWSHandler` still compile (unused by training; removal tracked in ROADMAP §9).
 
 ## [0.2.0] — 2026-08-17
 
