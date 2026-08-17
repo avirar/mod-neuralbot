@@ -4,6 +4,22 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.3.1] — 2026-08-18
+
+### Fixed
+- Bot name generation could emit names ending in `GM` (e.g. slot 194 → `NeuralbotGM`).
+  AzerothCore reserves every name ending in `GM`/`gm` (`ObjectMgr::IsReservedName`/
+  `IsProfanityName`), so `Player::LoadFromDB` set `AT_LOGIN_RENAME` and that bot could
+  never spawn — permanently killing one env slot out of 400 on every boot. The letter-pair
+  encoding now skips the `GM` pair entirely (slot 194 → `NeuralbotGN`).
+
+### Added
+- `scripts/archive_to_nas.sh` + systemd user timer (`neuralbot-archive.timer`): daily
+  archival of large artifacts to the NAS (`~/NAS/temp/neuralbot`) — `neuralbot_episodes`
+  rows older than 2 days (gzip SQL + DELETE), model checkpoints beyond the newest 5,
+  old training logs, and `Server.log` once it passes 500 MB (grows ~1 GB/hour while
+  training).
+
 ## [Unreleased]
 
 ### Planned

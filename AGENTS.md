@@ -71,7 +71,10 @@ NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
   service.
 - **Git creds:** HTTPS via `~/.git-credentials` (user `avirar`). `gh` CLI token is stale;
   use git, not gh.
-- **Storage:** overflow (old logs, generated weights/checkpoints) can go to `~/NAS/temp`.
+- **Storage:** overflow (old logs, generated weights/checkpoints) goes to `~/NAS/temp/neuralbot`.
+  Automated daily by `scripts/archive_to_nas.sh` (systemd user timer `neuralbot-archive.timer`,
+  04:23): episodes rows >2 d old, checkpoints beyond newest 5, old logs, `Server.log` >500 MB
+  (~1 GB/hour while training). Run it manually after big housekeeping.
 
 ## Current state (2026-08-18)
 
