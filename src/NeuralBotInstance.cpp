@@ -390,42 +390,57 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     Player* bot = _player;
     if (!bot) return 0.0f;
 
-    float reward = 0.0f;
+    // ── Native reward terms ────────────────────────────────────────────────
+    // These are the ONLY signals summed into `total` (see DESIGN.md). Everything
+    // below this section is computed for logging/diagnostics only — no shaping.
 
+    // XP — the core leveling signal. Kill XP, quest-turn-in XP, and exploration
+    // XP all flow through PLAYER_XP. On a level-up the counter resets with
+    // carry-over, so reconstruct the true gain across the threshold (otherwise a
+    // level-up would read as a large negative delta).
     float curXp = static_cast<float>(bot->GetUInt32Value(PLAYER_XP));
-    float xpReward = (curXp - _prevXp) / 100.0f;
-    reward += xpReward;
-    out.xpDelta = xpReward;
+    float curNextXp = static_cast<float>(bot->GetUInt32Value(PLAYER_NEXT_LEVEL_XP));
+    uint32 curLevel = bot->GetLevel();
+
+    float xpGained;
+    if (curLevel > _prevLevel && _prevLevel > 0)
+        xpGained = (_prevNextLevelXp - _prevXp) + curXp;
+    else
+        xpGained = curXp - _prevXp;
+    out.xpDelta = xpGained / 100.0f;
+
+    // Level — sparse milestone bonus; leveling is the explicit objective.
+    float levelReward = (curLevel > _prevLevel && _prevLevel > 0) ? 1.0f : 0.0f;
+
     _prevXp = curXp;
+    _prevNextLevelXp = curNextXp;
+    _prevLevel = curLevel;
+
+    // Death — sparse penalty. Death is genuinely costly (corpse run + repair).
+    if (_diedThisStep)
+    {
+        out.deathPenalty = 10.0f;
+        _diedThisStep = false;
+    }
+
+    // Gold — money earned from loot, quests, and vendoring (copper → gold).
+    float curMoney = static_cast<float>(bot->GetMoney());
+    out.lootReward = (curMoney - _prevMoney) / 10000.0f;
+    _prevMoney = curMoney;
+
+    // ── Shaping terms (diagnostic-only, NOT summed into reward) ────────────
 
     float killReward = _killCount * 5.0f;
-    reward += killReward;
     out.killReward = killReward;
-
-    static uint32 rewLogCounter = 0;
-    if (_killCount > 0.0f || (++rewLogCounter % 500 == 1))
-        LOG_INFO("module.neuralbot.debug", "ComputeReward: '{}' _killCount={:.1f} killReward={:.1f} xpDelta={:.4f} death={}",
-            GetName(), _killCount, killReward, xpReward, _diedThisStep);
-
     _killCount = 0.0f;
 
     float curHp = static_cast<float>(bot->GetHealth());
     float hpDelta = _prevHealth - curHp;
     float damagePenalty = 0.0f;
     if (hpDelta > 0)
-    {
         damagePenalty = hpDelta / static_cast<float>(bot->GetMaxHealth()) * 0.5f;
-        reward -= damagePenalty;
-    }
     out.damageTaken = damagePenalty;
     _prevHealth = curHp;
-
-    if (_diedThisStep)
-    {
-        out.deathPenalty = 10.0f;
-        reward -= 10.0f;
-        _diedThisStep = false;
-    }
 
     float questAcceptedReward = 0.0f, questCompletedReward = 0.0f;
     float questProgressReward = 0.0f, questProximityReward = 0.0f;
@@ -455,10 +470,7 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
 
         for (uint32 qid : curActive)
             if (_prevTrackedQuests.find(qid) == _prevTrackedQuests.end())
-            {
-                reward += 5.0f;
                 questAcceptedReward += 5.0f;
-            }
 
         for (auto const& [qid, prevStatus] : _prevQuestStatus)
         {
@@ -468,10 +480,7 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
                 uint8 cur = it->second;
                 if (prevStatus == static_cast<uint8>(QUEST_STATUS_COMPLETE) &&
                     cur == static_cast<uint8>(QUEST_STATUS_REWARDED))
-                {
-                    reward += 20.0f;
                     questCompletedReward += 20.0f;
-                }
             }
         }
 
@@ -481,11 +490,7 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
             if (it != curCounters.end())
                 for (int i = 0; i < 4; ++i)
                     if (it->second[i] > prevCounts[i])
-                    {
-                        float tick = 0.5f * static_cast<float>(it->second[i] - prevCounts[i]);
-                        reward += tick;
-                        questProgressReward += tick;
-                    }
+                        questProgressReward += 0.5f * static_cast<float>(it->second[i] - prevCounts[i]);
         }
 
         if (_cachedNearestQGDist > 0.0f)
@@ -504,7 +509,6 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
                 float pct = (_prevQGDist - _cachedNearestQGDist) / _prevQGDist;
                 questProximityReward += std::min(pct * 0.005f, 0.01f);
             }
-            reward += questProximityReward;
             _prevQGDist = _cachedNearestQGDist;
         }
 
@@ -518,7 +522,6 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     out.questProgress = questProgressReward;
     out.questProximity = questProximityReward;
 
-    // Enemy proximity reward — primary gradient to pull bots toward mobs
     float enemyProximityReward = 0.0f;
     if (_cachedNearestEnemyDist > 0.0f)
     {
@@ -536,35 +539,21 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
             float pct = (_prevEnemyDist - _cachedNearestEnemyDist) / _prevEnemyDist;
             enemyProximityReward += std::min(pct * 0.05f, 0.1f);
         }
-        reward += enemyProximityReward;
         _prevEnemyDist = _cachedNearestEnemyDist;
     }
     out.enemyProximity = enemyProximityReward;
 
-    float curMoney = static_cast<float>(bot->GetMoney());
-    float moneyDelta = (curMoney - _prevMoney) / 10000.0f;
-    out.lootReward = std::min(moneyDelta, 1.0f);
-    reward += out.lootReward;
-    _prevMoney = curMoney;
-
-    // Target-acquisition reward — nudge agent to use TARGET_NEAREST_ENEMY
     float targetAcquiredReward = 0.0f;
     {
         Unit* target = bot->GetSelectedUnit();
         ObjectGuid curTarget = target ? target->GetGUID() : ObjectGuid::Empty;
         if (!curTarget.IsEmpty() && curTarget != _prevTargetGuid)
-        {
             if (target->ToCreature() && !target->IsFriendlyTo(bot))
-            {
                 targetAcquiredReward = 0.5f;
-                reward += targetAcquiredReward;
-            }
-        }
         _prevTargetGuid = curTarget;
     }
     out.targetAcquired = targetAcquiredReward;
 
-    // Trainer proximity reward — gradient to pull bots toward class trainers
     float trainerProximityReward = 0.0f;
     if (_cachedNearestTrainerDist > 0.0f)
     {
@@ -579,28 +568,27 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
 
         if (_prevTrainerDist > 0.0f && _cachedNearestTrainerDist < _prevTrainerDist)
             trainerProximityReward += 0.002f;
-        reward += trainerProximityReward;
         _prevTrainerDist = _cachedNearestTrainerDist;
     }
     out.trainerProximity = trainerProximityReward;
 
-    // Spell learned reward — significant bonus for learning new spells
-    float spellLearnedReward = _spellsLearnedThisEpisode * 10.0f;
-    reward += spellLearnedReward;
-    out.spellLearned = spellLearnedReward;
+    out.spellLearned = _spellsLearnedThisEpisode * 10.0f;
     _spellsLearnedThisEpisode = 0;
 
-    float timePenalty = 0.001f;
-    reward -= timePenalty;
-    out.timePenalty = timePenalty;
+    out.timePenalty = 0.0f;
 
-    return reward;
+    // Native total: XP + gold + level milestone + quest completion − death.
+    // Quest-turn-in XP also flows through xpDelta, but the discrete completion
+    // event gets its own sparse signal for cleaner long-sequence credit.
+    return out.xpDelta + out.lootReward + levelReward + out.questCompleted - out.deathPenalty;
 }
 
 void NeuralBotInstance::ResetRewardTracking()
 {
     if (!_player) return;
     _prevXp = static_cast<float>(_player->GetUInt32Value(PLAYER_XP));
+    _prevNextLevelXp = static_cast<float>(_player->GetUInt32Value(PLAYER_NEXT_LEVEL_XP));
+    _prevLevel = _player->GetLevel();
     _prevHealth = static_cast<float>(_player->GetHealth());
     _killCount = 0.0f;
     _diedThisStep = false;

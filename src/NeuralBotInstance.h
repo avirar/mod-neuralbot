@@ -71,6 +71,8 @@ private:
     std::deque<uint16> _opcodeHistory;
 
     float _prevXp = 0.0f;
+    float _prevNextLevelXp = 0.0f;
+    uint32 _prevLevel = 0;
     float _prevHealth = 0.0f;
     float _killCount = 0.0f;
     bool _diedThisStep = false;
