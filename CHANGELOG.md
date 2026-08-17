@@ -4,6 +4,19 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.4.1] — 2026-08-18
+
+### Fixed
+- **Idle timeout starved combat** (100M-step flat-reward root cause): at ~32 shm
+  steps/s per bot, the 200-step idle budget ≈ 6 s wall time, while mobs sit 40+ yd
+  from the spawn clumps (~190 walk steps). Episodes terminated mid-approach — only
+  0.2% ever reached combat. Idle threshold 200 → 1500 (~47 s); `_maxSteps` stays 3000.
+- `ATTACK_START` now auto-selects the nearest hostile when nothing is targeted
+  (interim auto-service, same as the CAST fallback; ROADMAP §3 removes them once the
+  policy works).
+- Watchdog: training budget 100M → 1B (absolute in SB3 — resuming a finished model
+  with the same budget made `learn()` exit instantly, restart-looping all night).
+
 ## [0.4.0] — 2026-08-18
 
 ### Changed

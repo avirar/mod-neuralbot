@@ -1166,8 +1166,14 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
 
     if (action == ACTION_ATTACK_START)
     {
-        if (Unit* target = bot->GetSelectedUnit())
+        Unit* target = bot->GetSelectedUnit();
+        if (!target)
+            target = FindNearestMatchingUnit(bot, 60.0f, true, false); // interim auto-service (ROADMAP §3)
+        if (target)
+        {
+            InjectCMSG(CMSG_SET_SELECTION, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
             InjectCMSG(CMSG_ATTACKSWING, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
+        }
         return;
     }
     if (action == ACTION_ATTACK_STOP)
@@ -1417,7 +1423,10 @@ void NeuralBotInstance::UpdateIdleTracking(float rewardTotal)
 bool NeuralBotInstance::ShouldTerminate(std::string& info)
 {
     bool timedOut = _stepCount >= _maxSteps;
-    bool idle = _stepsWithoutReward >= 200;
+    // ~32 shm steps/s per bot: 1500 steps ≈ 47 s without reward. Mobs sit 40+ yd from
+    // the spawn clumps (~190 walk steps); the old 200-step budget terminated episodes
+    // mid-approach, so combat almost never started (0.2% of episodes ever saw XP).
+    bool idle = _stepsWithoutReward >= 1500;
     if (timedOut || _diedThisStep || (_player && !_player->IsAlive()) || idle)
     {
         info = _diedThisStep ? "died" : (idle ? "idle" : "max_steps");

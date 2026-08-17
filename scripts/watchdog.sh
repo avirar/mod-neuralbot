@@ -48,7 +48,7 @@ start_trainer() {
     fi
     cd "$MODULE_DIR"
     source .venv/bin/activate
-    NEURALBOT_MODEL="$MODEL_PREFIX" NEURALBOT_TIMESTEPS=100000000 \
+    NEURALBOT_MODEL="$MODEL_PREFIX" NEURALBOT_TIMESTEPS=1000000000 \
         nohup python3 python/train_v3.py > "python/logs/train_auto_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
     disown
     log "trainer launched (pid $!)"
