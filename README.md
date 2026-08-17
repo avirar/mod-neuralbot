@@ -83,26 +83,36 @@ Observation constants are defined in `src/NeuralBotCommon.h` and mirrored in `py
 | 6 | `TARGET_NEAREST_ENEMY` | 14 | `LOOT` |
 | 7 | `ATTACK_START` | 15 | `LEARN_SPELL` |
 
-## Reward (1 total + 14 components)
+## Reward (native, v0.2.0)
 
-Computed per step in `NeuralBotInstance::ComputeReward`. The scalar `total` is what PPO optimizes; components are logged to MySQL for analysis.
+Computed per step in `NeuralBotInstance::ComputeReward`. The scalar `total` is what PPO
+optimizes, and is **native only** — the game's own signal, no shaping:
 
-| Component | Meaning |
-|-----------|---------|
-| `xpDelta` | XP gained since last step |
-| `damageTaken` | Damage received (penalty) |
-| `killReward` | Enemy killed |
-| `deathPenalty` | Bot died |
-| `lootReward` | Money gained from looting |
-| `questAccepted` | Accepted a quest |
-| `questCompleted` | Completed a quest |
-| `questProximity` | Distance to quest giver/ender improved |
-| `questProgress` | Quest objective progress increased |
-| `enemyProximity` | Distance to nearest enemy decreased |
-| `targetAcquired` | Acquired a new target |
-| `spellLearned` | Learned a new spell |
-| `trainerProximity` | Distance to trainer improved |
-| `timePenalty` | Constant small negative (`-0.001`) |
+```
+total = xpDelta + money(lootReward) + levelReward + questCompleted − deathPenalty
+```
+
+The remaining components are computed but **diagnostic-only** (logged to
+`neuralbot_episodes` for analysis, not summed). Level-ups are detected via
+`PLAYER_NEXT_LEVEL_XP` so a level boundary does not read as a negative XP delta.
+
+| Component | Summed? | Meaning |
+|-----------|---------|---------|
+| `xpDelta` | ✅ native | XP gained since last step |
+| `lootReward` | ✅ native | Money (gold) delta from loot/quests/vendoring |
+| `deathPenalty` | ✅ native | Bot died (sparse) |
+| `questCompleted` | ✅ native | Quest turned in (sparse) |
+| `levelReward` | ✅ native | Level-up milestone (sparse) |
+| `damageTaken` | ❌ diagnostic | Damage received |
+| `killReward` | ❌ diagnostic | Enemy killed |
+| `questAccepted` | ❌ diagnostic | Accepted a quest |
+| `questProximity` | ❌ diagnostic | Distance to quest giver/ender |
+| `questProgress` | ❌ diagnostic | Quest objective progress |
+| `enemyProximity` | ❌ diagnostic | Distance to nearest enemy |
+| `targetAcquired` | ❌ diagnostic | Acquired a new target |
+| `spellLearned` | ❌ diagnostic | Learned a new spell |
+| `trainerProximity` | ❌ diagnostic | Distance to trainer |
+| `timePenalty` | ❌ (disabled) | Constant small negative (`0.0`) |
 
 ## Shared memory layout
 
@@ -124,6 +134,11 @@ Computed per step in `NeuralBotInstance::ComputeReward`. The scalar `total` is w
 - Python 3.12 virtualenv at `.venv` (`--system-site-packages`)
 - `sbx` (Stable-Baselines3 JAX), `stable-baselines3`, `gymnasium`, `numpy`, `pymysql`
 - MySQL (`acore_characters`), CUDA GPU (JAX)
+
+> **Toolchain note:** the bundled `deps/jemalloc` (5.2.1) does not compile with GCC 16
+> (`std::__throw_bad_alloc` was removed). Upstream azerothcore already carries the fix
+> (`throw std::bad_alloc()`); if you see that error, apply the same one-line change to
+> `deps/jemalloc/src/jemalloc_cpp.cpp` or pull latest upstream.
 
 ## Building
 
@@ -183,7 +198,22 @@ NeuralBot registers a `PlayerbotScript` (`OnPlayerbotPacketSent`) and therefore 
 
 - **Spell learning unreliable.** Bots find trainers but often fail the 5-yard interaction check (`ACTION_LEARN_SPELL` used heavily, zero spells learned in some runs). No friendly-targeting/navigation action exists to close the gap.
 - **`neuralbot_client.py` / `NeuralBotWSHandler.cpp` are legacy.** The TCP path is superseded by shared memory and kept only for debug/status.
-- **Hardcoded reward shaping.** 14 reward terms are hand-tuned; see `ROADMAP.md` for the plan to move to native rewards.
+- **Fixed 85-float state.** The state is still a hand-picked flat vector; the structured, entity-centric schema is specified in `DESIGN.md` and tracked in `ROADMAP.md` (§1).
+
+## Repository layout & git workflow
+
+Three nested repos, all under `/home/luke/GIT/azerothcore-wotlk`:
+
+| Repo | Local path | `origin` (your fork) | `upstream` | Branch |
+|------|-----------|----------------------|------------|--------|
+| AzerothCore (playerbots fork) | `…/azerothcore-wotlk` | `avirar/azerothcore-wotlk` | `mod-playerbots/azerothcore-wotlk` | `neuralbot` (ours), `Playerbot` (mirrors upstream) |
+| Playerbots module | `…/modules/mod-playerbots` | `avirar/mod-playerbots` | `mod-playerbots/mod-playerbots` | `master` |
+| NeuralBot module | `…/modules/mod-neuralbot` | `avirar/mod-neuralbot` | — | `master` |
+
+- `modules/` is gitignored in the parent repo, so the two modules are independent repos.
+- Our parent-repo changes (`conf/dist/config.sh` build type, a local DB-migration tweak)
+  live on the `neuralbot` branch; `Playerbot` is a clean mirror of upstream.
+- Weekly sync (`scripts/sync_upstream.sh`): fetch + merge `upstream` → push both branches.
 
 ## License
 

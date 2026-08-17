@@ -35,17 +35,17 @@ agent can actually reason over.
       length-prefixed binary layout) replacing the flat `float[4096×100]` region.
 - [ ] Python side parses into dicts/tensors for a transformer policy.
 
-## 2. Native reward — P0
+## 2. Native reward — P0 — ✅ DONE (2026-08-17)
 
 Remove shaping. Keep only the game's own signal.
 
-- [ ] XP gained → reward (level as a sparse bonus on top).
-- [ ] Gold/money delta.
-- [ ] Death penalty.
-- [ ] Quest completion (accepted/turned-in).
-- [ ] Remove: `killReward`, `enemyProximity`, `targetAcquired`, `questProximity`,
-      `trainerProximity`, `spellLearned`, hand-tuned `timePenalty`.
-- [ ] Keep reward components in `infos` for analysis only (not summed into reward).
+- [x] XP gained → reward (level as a sparse bonus on top; level-up carry-over handled).
+- [x] Gold/money delta.
+- [x] Death penalty.
+- [x] Quest completion (sparse bonus on turn-in).
+- [x] Remove from total: `killReward`, `enemyProximity`, `targetAcquired`, `questProximity`,
+      `trainerProximity`, `spellLearned`, hand-tuned `timePenalty` (kept as diagnostics).
+- [x] Keep reward components in `infos` for analysis only (not summed into reward).
 
 ## 3. Kill the auto-services — P0
 
@@ -99,8 +99,12 @@ Let the agent act; stop scripting the world for it.
 
 ---
 
-## Status snapshot (2026-05-11)
+## Status snapshot (2026-08-17)
 
 - PPO + shared memory + MySQL: **done** (v0.1.0).
-- Iter 1–4 trained; kills/loot/xp all climbing; spell learning blocked.
-- §1–§4 (faithful state, native reward, no auto-services) are the next rebuild.
+- Native reward (§2): **done** (v0.2.0). Shaping terms are now diagnostic-only.
+- Research + design: **done** — `DESIGN.md` specifies the faithful state schema, action
+  rework, and shm v2.
+- Remaining rebuild work, in order: §1 (structured state), §3 (kill auto-services),
+  §4 (action rework), §5 (DreamerV3), §6 (spell learning).
+- Earlier: iter 1–4 trained; kills/loot/xp all climbing; spell learning blocked.

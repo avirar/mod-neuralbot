@@ -7,11 +7,21 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 ## [Unreleased]
 
 ### Planned
-- Native reward (XP/level/gold/death/quest) — remove hand-crafted shaping terms.
-- Faithful structured entity state (variable-length, transformer policy) replacing the fixed 85-float vector.
+- Faithful structured entity state (variable-length, transformer policy) replacing the fixed 85-float vector (spec: `DESIGN.md`).
 - Model-based RL (DreamerV3) as a successor/alternative to PPO.
 - Reliable spell learning (friendly-targeting / trainer navigation).
 - Curriculum across classes and starting zones.
+- Remove auto-services (AutoQuest / auto-target / auto-loot).
+
+## [0.2.0] — 2026-08-17
+
+### Added
+- Native reward. The scalar `total` is now `XP + gold + level milestone + quest completion − death`. Shaping terms (`killReward`, `damageTaken`, `questAccepted`, `questProgress`, `questProximity`, `enemyProximity`, `targetAcquired`, `trainerProximity`, `spellLearned`) are still computed but kept **diagnostic-only** (logged to `neuralbot_episodes`, not summed).
+- XP level-up carry-over handling: reconstructs the true XP gain across a level boundary using `PLAYER_NEXT_LEVEL_XP`, so a level-up no longer reads as a large negative XP delta.
+- `DESIGN.md` — faithful state schema, action-space rework, shared-memory v2, migration phases.
+
+### Changed
+- `ComputeReward` no longer sums shaping terms or the `-0.001` time penalty (`out.timePenalty = 0`).
 
 ## [0.1.0] — 2026-05-11
 
