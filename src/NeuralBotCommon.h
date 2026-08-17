@@ -29,26 +29,36 @@ constexpr size_t OBS_COMBAT_STATE_SIZE = 15;
 constexpr size_t OBS_QUEST_STATE_SIZE = 10;
 constexpr size_t OBS_TOTAL_SIZE = OBS_PLAYER_STATE_SIZE + (OBS_NEARBY_UNITS_COUNT * OBS_NEARBY_UNIT_FEATURES) + OBS_COMBAT_STATE_SIZE + OBS_QUEST_STATE_SIZE;
 
-constexpr size_t ACTION_COUNT = 16;
+// ── Action space v2 (DESIGN.md "Action space (v2)") ────────────────────────────
+// Point-navigation + entity-index targeting + spellbook-index casting.
+// TARGET_ENTITY_i selects the i-th nearest entity exactly as listed in the frame's
+// distance-sorted entities[] section; CAST_SPELL_i casts the i-th spellbook entry in
+// frame spells[] order. Indices are therefore consistent between observation & action.
+constexpr size_t ACTION_COUNT = 41;
+constexpr size_t MAX_ENTITY_TARGET_SLOTS = 18; // TARGET_ENTITY_0 .. _17
+constexpr size_t MAX_CAST_SLOTS = 8;           // CAST_SPELL_0 .. _7
 
 enum NeuralBotAction : uint32
 {
     ACTION_NOOP = 0,
-    ACTION_MOVE_FORWARD = 1,
-    ACTION_MOVE_BACKWARD = 2,
-    ACTION_TURN_LEFT = 3,
-    ACTION_TURN_RIGHT = 4,
-    ACTION_STOP_MOVE = 5,
-    ACTION_TARGET_NEAREST_ENEMY = 6,
-    ACTION_ATTACK_START = 7,
-    ACTION_CAST_SPELL_1 = 8,
-    ACTION_CAST_SPELL_2 = 9,
-    ACTION_CAST_SPELL_3 = 10,
-    ACTION_INTERACT_NPC = 11,
-    ACTION_COMPLETE_QUEST = 12,
-    ACTION_TARGET_QUEST_GIVER = 13,
-    ACTION_LOOT = 14,
-    ACTION_LEARN_SPELL = 15
+    ACTION_MOVE_TO_TARGET = 1,       // MoveChase(selected) — fallback nearest hostile
+    ACTION_STOP_MOVE = 2,
+    ACTION_MOVE_FORWARD = 3,         // legacy tank control
+    ACTION_MOVE_BACKWARD = 4,        // legacy tank control
+    ACTION_TURN_LEFT = 5,
+    ACTION_TURN_RIGHT = 6,
+    ACTION_TARGET_NEAREST_ENEMY = 7,
+    ACTION_TARGET_NEAREST_FRIENDLY = 8,
+    ACTION_TARGET_NEAREST_CORPSE = 9,
+    ACTION_TARGET_ENTITY_0 = 10,     // + i → i-th nearest entity (frame order)
+    ACTION_TARGET_ENTITY_LAST = ACTION_TARGET_ENTITY_0 + MAX_ENTITY_TARGET_SLOTS - 1, // 27
+    ACTION_ATTACK_START = 28,
+    ACTION_ATTACK_STOP = 29,
+    ACTION_CAST_SPELL_0 = 30,        // + i → i-th spellbook entry (frame order)
+    ACTION_CAST_SPELL_LAST = ACTION_CAST_SPELL_0 + MAX_CAST_SLOTS - 1,                // 37
+    ACTION_INTERACT_TARGET = 38,     // context: quest hello/accept, trainer buy, loot
+    ACTION_COMPLETE_QUEST = 39,      // turn in at nearest quest ender
+    ACTION_LOOT = 40
 };
 
 struct NeuralBotObservation

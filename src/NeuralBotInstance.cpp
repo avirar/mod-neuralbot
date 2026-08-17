@@ -10,6 +10,7 @@
 #include "Log.h"
 #include "Opcodes.h"
 #include "Map.h"
+#include "ObjectAccessor.h"
 #include "Trainer.h"
 #include "GameObject.h"
 
@@ -509,6 +510,7 @@ void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
 
     // ── entities: nearby units + gameobjects ────────────────────────────
     std::vector<NBEntityRec> entities;
+    std::vector<ObjectGuid> entityGuids; // parallel to entities — true ObjectGuids for action resolution
     entities.reserve(NB_MAX_ENTITIES + 16);
     if (bot->IsInWorld())
     {
@@ -540,6 +542,7 @@ void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
             rec.casting = u->HasUnitState(UNIT_STATE_CASTING) ? 1 : 0;
             rec.npcFlags = u->ToCreature() ? static_cast<uint32_t>(u->GetNpcFlags()) : 0;
             entities.push_back(rec);
+            entityGuids.push_back(u->GetGUID());
         }
 
         std::list<GameObject*> gos;
@@ -564,13 +567,37 @@ void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
             rec.reaction = NB_REACTION_NEUTRAL;
             rec.alive = 1;
             entities.push_back(rec);
+            entityGuids.push_back(go->GetGUID());
         }
     }
 
-    std::sort(entities.begin(), entities.end(),
-        [](NBEntityRec const& a, NBEntityRec const& b) { return a.distance < b.distance; });
+    // Sort records and guids together by distance (frame order = nearest first)
+    {
+        std::vector<size_t> order(entities.size());
+        for (size_t i = 0; i < order.size(); ++i)
+            order[i] = i;
+        std::sort(order.begin(), order.end(), [&](size_t a, size_t b)
+            { return entities[a].distance < entities[b].distance; });
+        std::vector<NBEntityRec> sortedRecs(order.size());
+        std::vector<ObjectGuid> sortedGuids(order.size());
+        for (size_t i = 0; i < order.size(); ++i)
+        {
+            sortedRecs[i] = entities[order[i]];
+            sortedGuids[i] = entityGuids[order[i]];
+        }
+        entities.swap(sortedRecs);
+        entityGuids.swap(sortedGuids);
+    }
 
     size_t nEntities = std::min<size_t>(entities.size(), NB_MAX_ENTITIES);
+    // Cache guids in frame order so TARGET_ENTITY_i (action) resolves to the same
+    // entity the policy observed at this step.
+    _frameEntityCount = nEntities;
+    for (size_t i = 0; i < nEntities; ++i)
+    {
+        frame.entities[i] = entities[i];
+        _frameEntityGuids[i] = entityGuids[i];
+    }
     for (size_t i = 0; i < nEntities; ++i)
         frame.entities[i] = entities[i];
     frame.counts.nEntities = static_cast<uint16_t>(nEntities);
@@ -909,18 +936,143 @@ void NeuralBotInstance::ResetRewardTracking()
     _spellsLearnedThisEpisode = 0;
 }
 
+Unit* NeuralBotInstance::ResolveFrameEntity(size_t index)
+{
+    if (index >= _frameEntityCount)
+        return nullptr;
+    return ObjectAccessor::GetUnit(*_player, _frameEntityGuids[index]);
+}
+
+GameObject* NeuralBotInstance::ResolveFrameEntityGO(size_t index)
+{
+    if (index >= _frameEntityCount)
+        return nullptr;
+    return _player->GetMap()->GetGameObject(_frameEntityGuids[index]);
+}
+
+uint32 NeuralBotInstance::GetFrameSpellId(size_t index)
+{
+    // Mirror BuildFrame's spells[] enumeration exactly (PlayerSpellMap order, skipping
+    // removed/unknown) so CAST_SPELL_i addresses the same spell the policy observed.
+    Player* bot = _player;
+    if (!bot)
+        return 0;
+    PlayerSpellMap const& spellMap = bot->GetSpellMap();
+    size_t n = 0;
+    for (auto const& [spellId, state] : spellMap)
+    {
+        if (n >= NB_MAX_SPELLS)
+            break;
+        if (state->State == PLAYERSPELL_REMOVED)
+            continue;
+        if (!sSpellMgr->GetSpellInfo(spellId))
+            continue;
+        if (n == index)
+            return spellId;
+        ++n;
+    }
+    return 0;
+}
+
+namespace
+{
+    Unit* FindNearestMatchingUnit(Player* bot, float range, bool hostiles, bool wantDead)
+    {
+        std::list<Unit*> units;
+        if (hostiles)
+        {
+            Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, range);
+            Acore::UnitListSearcher<decltype(check)> searcher(bot, units, check);
+            Cell::VisitObjects(bot, searcher, range);
+        }
+        else
+        {
+            Acore::AnyFriendlyUnitInObjectRangeCheck check(bot, bot, range);
+            Acore::UnitListSearcher<decltype(check)> searcher(bot, units, check);
+            Cell::VisitObjects(bot, searcher, range);
+        }
+
+        Unit* best = nullptr;
+        float bestDist = range + 1.0f;
+        for (Unit* u : units)
+        {
+            if (!u || u == bot)
+                continue;
+            if (u->IsAlive() == wantDead)
+                continue;
+            if (!hostiles && !u->IsAlive()) // friendly scan: alive only
+                continue;
+            float d = bot->GetDistance(u);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = u;
+            }
+        }
+        return best;
+    }
+
+    GameObject* FindNearestChestGO(Player* bot, float range)
+    {
+        std::list<GameObject*> gos;
+        AnyGameObjectInRangeCheck goCheck(bot, range);
+        Acore::GameObjectListSearcher<AnyGameObjectInRangeCheck> goSearcher(bot, gos, goCheck);
+        Cell::VisitObjects(bot, goSearcher, range);
+
+        GameObject* best = nullptr;
+        float bestDist = range + 1.0f;
+        for (GameObject* go : gos)
+        {
+            if (!go || go->GetGoType() != GAMEOBJECT_TYPE_CHEST)
+                continue;
+            float d = bot->GetDistance(go);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = go;
+            }
+        }
+        return best;
+    }
+}
+
 void NeuralBotInstance::ExecuteAction(uint32 action)
 {
     Player* bot = _player;
     if (!bot || !bot->IsAlive())
         return;
 
-    LOG_INFO("module.neuralbot", "Instance '{}' Action: {}", GetName(), action);
+    LOG_DEBUG("module.neuralbot", "Instance '{}' Action: {}", GetName(), action);
 
     switch (action)
     {
     case ACTION_NOOP:
         break;
+
+    case ACTION_MOVE_TO_TARGET:
+    {
+        // Point navigation: chase the selected unit (navmesh pathfinding via MotionMaster).
+        // Fallback chain keeps a random policy mobile: nearest hostile, then nearest chest.
+        Unit* target = bot->GetSelectedUnit();
+        if (!target || !target->IsInWorld())
+            target = FindNearestMatchingUnit(bot, 40.0f, true, false);
+        if (target)
+        {
+            if (target->IsAlive())
+                bot->GetMotionMaster()->MoveChase(target);
+            else
+                bot->GetMotionMaster()->MovePoint(target->GetMapId(), target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), FORCED_MOVEMENT_RUN, false);
+            break;
+        }
+        if (GameObject* go = FindNearestChestGO(bot, 40.0f))
+            bot->GetMotionMaster()->MovePoint(go->GetMapId(), go->GetPositionX(), go->GetPositionY(), go->GetPositionZ(), FORCED_MOVEMENT_RUN, false);
+        break;
+    }
+
+    case ACTION_STOP_MOVE:
+        bot->GetMotionMaster()->Clear();
+        break;
+
     case ACTION_MOVE_FORWARD:
     {
         float dist = 3.0f;
@@ -971,234 +1123,152 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         bot->SetOrientation(o);
         break;
     }
-    case ACTION_STOP_MOVE:
-        bot->GetMotionMaster()->Clear();
-        break;
+
     case ACTION_TARGET_NEAREST_ENEMY:
     {
-        if (bot->IsInWorld())
-        {
-            float range = 40.0f;
-            std::list<Unit*> targets;
-            Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, range);
-            Acore::UnitListSearcher<decltype(check)> searcher(bot, targets, check);
-            Cell::VisitObjects(bot, searcher, range);
-            Unit* nearest = nullptr;
-            float minDist = range + 1.0f;
-            for (Unit* u : targets)
-            {
-                if (!u || !u->IsAlive()) continue;
-                float d = bot->GetDistance(u);
-                if (d < minDist) { minDist = d; nearest = u; }
-            }
-            if (nearest)
-                InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
-        }
+        if (Unit* nearest = FindNearestMatchingUnit(bot, 40.0f, true, false))
+            InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
         break;
     }
-    case ACTION_ATTACK_START:
+    case ACTION_TARGET_NEAREST_FRIENDLY:
+    {
+        if (Unit* nearest = FindNearestMatchingUnit(bot, 40.0f, false, false))
+            InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
+        break;
+    }
+    case ACTION_TARGET_NEAREST_CORPSE:
+    {
+        if (Unit* nearest = FindNearestMatchingUnit(bot, 40.0f, true, true))
+            InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    // TARGET_ENTITY_0 .. TARGET_ENTITY_LAST — select the i-th nearest frame entity
+    if (action >= ACTION_TARGET_ENTITY_0 && action <= ACTION_TARGET_ENTITY_LAST)
+    {
+        if (Unit* u = ResolveFrameEntity(action - ACTION_TARGET_ENTITY_0))
+            InjectCMSG(CMSG_SET_SELECTION, [u](WorldPacket& pkt) { pkt << u->GetGUID(); });
+        return;
+    }
+
+    if (action == ACTION_ATTACK_START)
     {
         if (Unit* target = bot->GetSelectedUnit())
             InjectCMSG(CMSG_ATTACKSWING, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
-        break;
+        return;
     }
-    case ACTION_LOOT:
+    if (action == ACTION_ATTACK_STOP)
     {
-        Creature* lootTarget = nullptr;
-        if (!_lastKilledGuid.IsEmpty())
-        {
-            if (Creature* c = bot->GetMap()->GetCreature(_lastKilledGuid))
-                if (!c->IsAlive() && bot->GetDistance(c) < 20.0f)
-                    lootTarget = c;
-        }
-        if (!lootTarget)
-        {
-            float bestDist = 15.0f;
-            std::list<Unit*> nearby;
-            Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, bestDist);
-            Acore::UnitListSearcher<decltype(check)> searcher(bot, nearby, check);
-            Cell::VisitObjects(bot, searcher, bestDist);
-            for (Unit* u : nearby)
-            {
-                if (u->isDead() && u->IsCreature())
-                {
-                    Creature* c = u->ToCreature();
-                    if (c && bot->GetDistance(c) < bestDist)
-                    {
-                        bestDist = bot->GetDistance(c);
-                        lootTarget = c;
-                    }
-                }
-            }
-        }
-        if (!lootTarget) break;
+        InjectCMSG(CMSG_ATTACKSTOP, [](WorldPacket& pkt) { });
+        return;
+    }
 
-        ObjectGuid guid = lootTarget->GetGUID();
-        InjectCMSG(CMSG_LOOT, [guid](WorldPacket& pkt) { pkt << guid; });
-        InjectCMSG(CMSG_LOOT_MONEY, [](WorldPacket& pkt) { });
-        for (uint8 slot = 0; slot < 16; ++slot)
-            InjectCMSG(CMSG_AUTOSTORE_LOOT_ITEM, [slot](WorldPacket& pkt) { pkt << slot; });
-        InjectCMSG(CMSG_LOOT_RELEASE, [guid](WorldPacket& pkt) { pkt << guid; });
-        break;
-    }
-    case ACTION_CAST_SPELL_1:
-    case ACTION_CAST_SPELL_2:
-    case ACTION_CAST_SPELL_3:
+    // CAST_SPELL_0 .. CAST_SPELL_LAST — i-th spellbook entry (frame spells[] order)
+    if (action >= ACTION_CAST_SPELL_0 && action <= ACTION_CAST_SPELL_LAST)
     {
-        size_t slot = action - ACTION_CAST_SPELL_1;
-        uint32 spellId = _spellSlots[slot];
-        if (spellId > 0 && bot->IsAlive())
-        {
-            Unit* target = bot->GetSelectedUnit();
-            if (!target)
-            {
-                float range = 40.0f;
-                std::list<Unit*> targets;
-                Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, range);
-                Acore::UnitListSearcher<decltype(check)> searcher(bot, targets, check);
-                Cell::VisitObjects(bot, searcher, range);
-                Unit* nearest = nullptr;
-                float minDist = range + 1.0f;
-                for (Unit* u : targets)
-                {
-                    if (!u || !u->IsAlive()) continue;
-                    float d = bot->GetDistance(u);
-                    if (d < minDist) { minDist = d; nearest = u; }
-                }
-                if (nearest) target = nearest;
-            }
-            InjectCMSG(CMSG_CAST_SPELL, [spellId, target](WorldPacket& pkt) {
-                pkt << uint8(0);
-                pkt << spellId;
-                pkt << uint8(0);
-                if (target)
-                {
-                    pkt << uint32(2);
-                    pkt << target->GetGUID().WriteAsPacked();
-                }
-                else
-                    pkt << uint32(0);
-            });
-        }
-        break;
-    }
-    case ACTION_INTERACT_NPC:
-    {
+        uint32 spellId = GetFrameSpellId(action - ACTION_CAST_SPELL_0);
+        if (spellId == 0)
+            return;
         Unit* target = bot->GetSelectedUnit();
-        if (target && target->ToCreature())
-        {
-            ObjectGuid guid = target->GetGUID();
-            Creature* creature = target->ToCreature();
-            float dist = bot->GetDistance(creature);
-            if (dist > 10.0f)
-                LOG_INFO("module.neuralbot", "INTERACT_NPC too far: dist={} entry={}", dist, creature->GetEntry());
-            InjectCMSG(CMSG_QUESTGIVER_HELLO, [guid](WorldPacket& pkt) { pkt << guid; });
-            auto bounds = sObjectMgr->GetCreatureQuestRelationBounds(creature->GetEntry());
-            for (auto it = bounds.first; it != bounds.second; ++it)
+        if (!target)
+            target = FindNearestMatchingUnit(bot, 40.0f, true, false); // §3: remove this auto-service later
+        InjectCMSG(CMSG_CAST_SPELL, [spellId, target](WorldPacket& pkt) {
+            pkt << uint8(0);
+            pkt << spellId;
+            pkt << uint8(0);
+            if (target)
             {
-                Quest const* quest = sObjectMgr->GetQuestTemplate(it->second);
-                if (quest && bot->CanTakeQuest(quest, false))
-                    InjectCMSG(CMSG_QUESTGIVER_ACCEPT_QUEST, [guid, questId = it->second](WorldPacket& pkt) {
-                        pkt << guid << uint32(questId) << uint32(0);
-                    });
+                pkt << uint32(2);
+                pkt << target->GetGUID().WriteAsPacked();
             }
-        }
-        break;
+            else
+                pkt << uint32(0);
+        });
+        return;
     }
-    case ACTION_COMPLETE_QUEST:
+
+    if (action == ACTION_INTERACT_TARGET)
     {
-        if (!bot->IsInWorld()) break;
-        float range = 40.0f;
-        std::list<Unit*> friendlies;
-        Acore::AnyFriendlyUnitInObjectRangeCheck friendlyCheck(bot, bot, range);
-        Acore::UnitListSearcher<decltype(friendlyCheck)> searcher(bot, friendlies, friendlyCheck);
-        Cell::VisitObjects(bot, searcher, range);
-        bool completed = false;
-        for (uint32 slot = 0; slot < 25 && !completed; ++slot)
-        {
-            uint32 qid = bot->GetQuestSlotQuestId(slot);
-            if (!qid || bot->GetQuestStatus(qid) != QUEST_STATUS_COMPLETE) continue;
-            Quest const* quest = sObjectMgr->GetQuestTemplate(qid);
-            if (!quest) continue;
-            for (Unit* u : friendlies)
-            {
-                Creature* c = u->ToCreature();
-                if (!c) continue;
-                auto bounds = sObjectMgr->GetCreatureQuestInvolvedRelationBounds(c->GetEntry());
-                for (auto it = bounds.first; it != bounds.second; ++it)
-                {
-                    if (it->second == qid)
-                    {
-                        ObjectGuid guid = c->GetGUID();
-                        InjectCMSG(CMSG_QUESTGIVER_COMPLETE_QUEST, [guid, qid](WorldPacket& pkt) { pkt << guid << uint32(qid); });
-                        InjectCMSG(CMSG_QUESTGIVER_CHOOSE_REWARD, [guid, qid](WorldPacket& pkt) { pkt << guid << uint32(qid) << uint32(0); });
-                        completed = true;
-                        break;
-                    }
-                }
-                if (completed) break;
-            }
-        }
-        break;
+        DoInteractWithTarget();
+        return;
     }
-    case ACTION_TARGET_QUEST_GIVER:
+
+    if (action == ACTION_COMPLETE_QUEST)
     {
-        if (!bot->IsInWorld()) break;
-        float range = 40.0f;
-        std::list<Unit*> friendlies;
-        Acore::AnyFriendlyUnitInObjectRangeCheck friendlyCheck(bot, bot, range);
-        Acore::UnitListSearcher<decltype(friendlyCheck)> searcher(bot, friendlies, friendlyCheck);
-        Cell::VisitObjects(bot, searcher, range);
-        Unit* best = nullptr;
-        float bestDist = range + 1.0f;
-        for (Unit* u : friendlies)
-        {
-            Creature* c = u->ToCreature();
-            if (!c) continue;
-            uint32 entry = c->GetEntry();
-            bool hasQuest = sObjectMgr->GetCreatureQuestRelationBounds(entry).first !=
-                             sObjectMgr->GetCreatureQuestRelationBounds(entry).second;
-            bool hasEnd = sObjectMgr->GetCreatureQuestInvolvedRelationBounds(entry).first !=
-                          sObjectMgr->GetCreatureQuestInvolvedRelationBounds(entry).second;
-            if (hasQuest || hasEnd)
-            {
-                float d = bot->GetDistance(c);
-                if (d < bestDist) { bestDist = d; best = c; }
-            }
-        }
-        if (best)
-            InjectCMSG(CMSG_SET_SELECTION, [best](WorldPacket& pkt) { pkt << best->GetGUID(); });
-        break;
+        ExecuteActionLegacyQuestTurnIn();
+        return;
     }
-    case ACTION_LEARN_SPELL:
+
+    if (action == ACTION_LOOT)
     {
-        if (!bot->IsInWorld()) break;
-        Creature* bestTrainer = nullptr;
-        float bestDist = 40.0f;
-        std::list<Unit*> friendlies;
-        Acore::AnyFriendlyUnitInObjectRangeCheck check(bot, bot, bestDist);
-        Acore::UnitListSearcher<decltype(check)> searcher(bot, friendlies, check);
-        Cell::VisitObjects(bot, searcher, bestDist);
+        ExecuteActionLegacyLoot();
+        return;
+    }
+}
 
-        for (Unit* u : friendlies)
+void NeuralBotInstance::DoInteractWithTarget()
+{
+    Player* bot = _player;
+    if (!bot || !bot->IsAlive() || !bot->IsInWorld())
+        return;
+
+    Unit* target = bot->GetSelectedUnit();
+
+    // No unit selected (or a dead one nearby): try nearest chest gameobject in reach.
+    if (!target)
+    {
+        if (GameObject* go = FindNearestChestGO(bot, 5.5f))
         {
-            Creature* c = u->ToCreature();
-            if (!c || !(c->GetNpcFlags() & UNIT_NPC_FLAG_TRAINER)) continue;
-            Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(c->GetEntry());
-            if (!trainer || !trainer->IsTrainerValidForPlayer(bot)) continue;
-            float d = bot->GetDistance(c);
-            if (d < bestDist) { bestDist = d; bestTrainer = c; }
+            ObjectGuid guid = go->GetGUID();
+            InjectCMSG(CMSG_GAMEOBJ_USE, [guid](WorldPacket& pkt) { pkt << guid; });
+            InjectCMSG(CMSG_GAMEOBJ_USE, [guid](WorldPacket& pkt) { pkt << guid; }); // open + loot open
         }
-        if (!bestTrainer) break;
+        return;
+    }
 
-        Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(bestTrainer->GetEntry());
-        if (!trainer) break;
+    // The client enforces ~5 yards for interactions; teaching approach → interact is
+    // exactly what fixes the historical "found trainer, never learned" failure.
+    float dist = bot->GetDistance(target);
+    if (dist > 5.5f)
+    {
+        LOG_DEBUG("module.neuralbot", "'{}' INTERACT too far ({:.1f} yd, entry {})", GetName(), dist, target->GetEntry());
+        return;
+    }
 
-        ObjectGuid guid = bestTrainer->GetGUID();
+    Creature* creature = target->ToCreature();
+    if (!creature)
+        return;
+
+    uint32 npcFlags = creature->GetNpcFlags();
+    ObjectGuid guid = creature->GetGUID();
+
+    if (npcFlags & UNIT_NPC_FLAG_QUESTGIVER)
+    {
+        InjectCMSG(CMSG_QUESTGIVER_HELLO, [guid](WorldPacket& pkt) { pkt << guid; });
+        auto bounds = sObjectMgr->GetCreatureQuestRelationBounds(creature->GetEntry());
+        for (auto it = bounds.first; it != bounds.second; ++it)
+        {
+            Quest const* quest = sObjectMgr->GetQuestTemplate(it->second);
+            if (quest && bot->CanTakeQuest(quest, false))
+                InjectCMSG(CMSG_QUESTGIVER_ACCEPT_QUEST, [guid, questId = it->second](WorldPacket& pkt) {
+                    pkt << guid << uint32(questId) << uint32(0);
+                });
+        }
+        return;
+    }
+
+    if (npcFlags & UNIT_NPC_FLAG_TRAINER)
+    {
+        Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(creature->GetEntry());
+        if (!trainer || !trainer->IsTrainerValidForPlayer(bot))
+            return;
         for (auto const& spell : trainer->GetSpells())
         {
-            if (trainer->CanTeachSpell(bot, &spell)
-                && spell.MoneyCost <= bot->GetMoney())
+            if (trainer->CanTeachSpell(bot, &spell) && spell.MoneyCost <= bot->GetMoney())
             {
                 InjectCMSG(CMSG_TRAINER_BUY_SPELL, [guid, spellId = spell.SpellId](WorldPacket& pkt) {
                     pkt << guid;
@@ -1207,9 +1277,91 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
                 break;
             }
         }
-        break;
+        return;
     }
+
+    if (npcFlags & UNIT_NPC_FLAG_VENDOR)
+        InjectCMSG(CMSG_LIST_INVENTORY, [guid](WorldPacket& pkt) { pkt << guid << uint32(0) << uint8(0) << uint8(0) << uint8(0); });
+}
+
+void NeuralBotInstance::ExecuteActionLegacyQuestTurnIn()
+{
+    Player* bot = _player;
+    if (!bot || !bot->IsInWorld())
+        return;
+    float range = 40.0f;
+    std::list<Unit*> friendlies;
+    Acore::AnyFriendlyUnitInObjectRangeCheck friendlyCheck(bot, bot, range);
+    Acore::UnitListSearcher<decltype(friendlyCheck)> searcher(bot, friendlies, friendlyCheck);
+    Cell::VisitObjects(bot, searcher, range);
+    bool completed = false;
+    for (uint32 slot = 0; slot < 25 && !completed; ++slot)
+    {
+        uint32 qid = bot->GetQuestSlotQuestId(slot);
+        if (!qid || bot->GetQuestStatus(qid) != QUEST_STATUS_COMPLETE) continue;
+        Quest const* quest = sObjectMgr->GetQuestTemplate(qid);
+        if (!quest) continue;
+        for (Unit* u : friendlies)
+        {
+            Creature* c = u->ToCreature();
+            if (!c) continue;
+            auto bounds = sObjectMgr->GetCreatureQuestInvolvedRelationBounds(c->GetEntry());
+            for (auto it = bounds.first; it != bounds.second; ++it)
+            {
+                if (it->second == qid)
+                {
+                    ObjectGuid guid = c->GetGUID();
+                    InjectCMSG(CMSG_QUESTGIVER_COMPLETE_QUEST, [guid, qid](WorldPacket& pkt) { pkt << guid << uint32(qid); });
+                    InjectCMSG(CMSG_QUESTGIVER_CHOOSE_REWARD, [guid, qid](WorldPacket& pkt) { pkt << guid << uint32(qid) << uint32(0); });
+                    completed = true;
+                    break;
+                }
+            }
+            if (completed) break;
+        }
     }
+}
+
+void NeuralBotInstance::ExecuteActionLegacyLoot()
+{
+    Player* bot = _player;
+    if (!bot)
+        return;
+    Creature* lootTarget = nullptr;
+    if (!_lastKilledGuid.IsEmpty())
+    {
+        if (Creature* c = bot->GetMap()->GetCreature(_lastKilledGuid))
+            if (!c->IsAlive() && bot->GetDistance(c) < 20.0f)
+                lootTarget = c;
+    }
+    if (!lootTarget)
+    {
+        float bestDist = 15.0f;
+        std::list<Unit*> nearby;
+        Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, bestDist);
+        Acore::UnitListSearcher<decltype(check)> searcher(bot, nearby, check);
+        Cell::VisitObjects(bot, searcher, bestDist);
+        for (Unit* u : nearby)
+        {
+            if (u->isDead() && u->IsCreature())
+            {
+                Creature* c = u->ToCreature();
+                if (c && bot->GetDistance(c) < bestDist)
+                {
+                    bestDist = bot->GetDistance(c);
+                    lootTarget = c;
+                }
+            }
+        }
+    }
+    if (!lootTarget) return;
+
+    ObjectGuid guid = lootTarget->GetGUID();
+    InjectCMSG(CMSG_LOOT, [guid](WorldPacket& pkt) { pkt << guid; });
+    InjectCMSG(CMSG_LOOT_MONEY, [](WorldPacket& pkt) { });
+    for (uint8 slot = 0; slot < 16; ++slot)
+        InjectCMSG(CMSG_AUTOSTORE_LOOT_ITEM, [slot](WorldPacket& pkt) { pkt << slot; });
+    InjectCMSG(CMSG_LOOT_RELEASE, [guid](WorldPacket& pkt) { pkt << guid; });
 }
 
 NeuralBotStepResult NeuralBotInstance::Step(uint32 action)

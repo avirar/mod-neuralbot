@@ -2,6 +2,7 @@
 #define NEURALBOTINSTANCE_H
 
 #include "NeuralBotCommon.h"
+#include "NeuralBotFrame.h"
 #include "Player.h"
 #include "WorldSession.h"
 #include "WorldPacket.h"
@@ -60,6 +61,12 @@ private:
     void BuildObservationInto(NeuralBotObservation& obs);
     void BuildFrame(NeuralBotFrame& frame);
     void ExecuteAction(uint32 action);
+    Unit* ResolveFrameEntity(size_t index);
+    GameObject* ResolveFrameEntityGO(size_t index);
+    uint32 GetFrameSpellId(size_t index);
+    void DoInteractWithTarget();
+    void ExecuteActionLegacyQuestTurnIn();
+    void ExecuteActionLegacyLoot();
     void InjectCMSG(uint16 opcode, std::function<void(WorldPacket&)> filler);
     float ComputeReward(NeuralBotReward& out);
     void AutoCompleteQuests();
@@ -100,6 +107,12 @@ private:
     uint32 _stepsWithoutReward = 0;
 
     ObjectGuid _lastKilledGuid;
+
+    // Frame entity cache: guids in exactly the order BuildFrame emitted them
+    // (distance-sorted), so TARGET_ENTITY_i resolves to the same entity the policy
+    // saw at observation time.
+    ObjectGuid _frameEntityGuids[NB_MAX_ENTITIES];
+    size_t _frameEntityCount = 0;
     float _prevMoney = 0.0f;
     uint32 _killsThisEpisode = 0;
 

@@ -39,15 +39,17 @@ DB_CONFIG = {
 class EpisodeStatsCallback(BaseCallback):
     """Logs per-episode stats to MySQL. Batched INSERT on each rollout end."""
 
-    INSERT_SQL = (
-        "INSERT INTO neuralbot_episodes "
-        "(episode, reward, length, xp, kill_count, death, "
-        " quest_proximity, quest_progress, enemy_proximity, target_acquired, "
-        " act_0, act_1, act_2, act_3, act_4, act_5, act_6, act_7, "
-        " act_8, act_9, act_10, act_11, act_12, act_13, act_14, act_15) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-        " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-    )
+    @property
+    def INSERT_SQL(self):
+        act_cols = ", ".join(f"act_{i}" for i in range(ACTION_COUNT))
+        act_ph = ", ".join(["%s"] * ACTION_COUNT)
+        return (
+            f"INSERT INTO neuralbot_episodes "
+            f"(episode, reward, length, xp, kill_count, death, "
+            f" quest_proximity, quest_progress, enemy_proximity, target_acquired, "
+            f" {act_cols}) "
+            f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, {act_ph})"
+        )
 
     def __init__(self, db_config: dict, verbose=0):
         super().__init__(verbose)
@@ -104,14 +106,7 @@ class EpisodeStatsCallback(BaseCallback):
                     round(infos[i].get("reward_components", {}).get("quest_progress", 0.0), 4),
                     round(self._ep_enemy_prox[i], 4),
                     round(self._ep_target_acq[i], 4),
-                    int(self.current_actions[0]),  int(self.current_actions[1]),
-                    int(self.current_actions[2]),  int(self.current_actions[3]),
-                    int(self.current_actions[4]),  int(self.current_actions[5]),
-                    int(self.current_actions[6]),  int(self.current_actions[7]),
-                    int(self.current_actions[8]),  int(self.current_actions[9]),
-                    int(self.current_actions[10]), int(self.current_actions[11]),
-                    int(self.current_actions[12]), int(self.current_actions[13]),
-                    int(self.current_actions[14]), int(self.current_actions[15]),
+                    *(int(self.current_actions[a]) for a in range(ACTION_COUNT)),
                 )
                 self._rollout_rows.append(row)
                 self.episode_num += 1

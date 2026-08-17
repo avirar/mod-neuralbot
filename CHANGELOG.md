@@ -4,6 +4,27 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.4.0] — 2026-08-18
+
+### Changed
+- **Action space v2 (ROADMAP §4 / DESIGN.md):** 16 → 41 discrete actions.
+  - `MOVE_TO_TARGET` — MotionMaster `MoveChase` toward the selected unit (navmesh
+    pathfinding); fallback chain: nearest hostile → nearest chest GO. Melee can finally
+    close distance; the legacy 3-yard tank controls remain as fallbacks.
+  - `TARGET_ENTITY_0..17` — select the i-th nearest entity *exactly as listed in the
+    frame's distance-sorted entities[]* (guid cache filled by BuildFrame guarantees
+    obs↔action index consistency).
+  - `CAST_SPELL_0..7` — i-th spellbook entry in frame spells[] order (replaces the three
+    auto-populated slots; enumeration mirrors BuildFrame exactly).
+  - `TARGET_NEAREST_FRIENDLY` / `TARGET_NEAREST_CORPSE`, `ATTACK_STOP`.
+  - `INTERACT_TARGET` — one context action on the selected unit: questgiver hello+accept,
+    trainer buy (fixes ROADMAP §6 path), vendor browse, chest use. Gated at 5.5 yd like
+    the real client — approach→interact must now be learned.
+  - `COMPLETE_QUEST` / `LOOT` kept as context scans (auto-service removal tracked in §3).
+- Per-action `LOG_INFO` → `LOG_DEBUG` (was ~13k lines/s → ~1 GB/hour of Server.log).
+- Episode logging: act columns now generated from ACTION_COUNT; `neuralbot_episodes`
+  extended to act_0..act_40 (live ALTER).
+
 ## [0.3.2] — 2026-08-18
 
 ### Fixed
