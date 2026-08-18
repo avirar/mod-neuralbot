@@ -156,7 +156,7 @@ def main():
     env = SharedMemoryVecEnv(timeout=60.0)
 
     num_bots = env.num_envs
-    buffer_size = 256 * num_bots
+    buffer_size = 512 * num_bots
     batch_size = 1024
 
     print(f"SharedMemoryVecEnv ready: {num_bots} bots, {OBS_FLAT_SIZE} obs dims, {FRAME_BYTES} bytes/frame")
@@ -187,16 +187,16 @@ def main():
             "MlpPolicy",
             env,
             verbose=1,
-            n_steps=256,
+            n_steps=512,
             batch_size=batch_size,
-            learning_rate=3e-4,
+            learning_rate=7e-4,
             # Sparse delayed reward: a kill needs ~190 steps of approach before combat,
             # so the discount horizon must cover it (0.99 -> ~100 steps was too short;
             # 0.999 -> ~1000 steps puts the XP inside the credit window).
             gamma=0.999,
             gae_lambda=0.98,
             clip_range=0.2,
-            ent_coef=0.02,
+            ent_coef=0.005,
         )
         print(f"Fresh model created.", flush=True)
 
