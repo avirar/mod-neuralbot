@@ -57,6 +57,7 @@ private:
 
     bool _enabled = false;
     bool _autoQuest = false;
+    bool _curriculumStaging = false;
 
     std::map<std::string, NeuralBotInstance*> _instances;
     std::map<ObjectGuid, NeuralBotInstance*> _instancesByGuid;

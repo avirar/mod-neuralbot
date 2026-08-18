@@ -32,6 +32,7 @@ void NeuralBotMgr::Initialize()
     LOG_INFO("module.neuralbot", "NeuralBot manager initializing...");
 
     _autoQuest = sConfigMgr->GetOption<bool>("NeuralBot.AutoQuest", true);
+    _curriculumStaging = sConfigMgr->GetOption<bool>("NeuralBot.Curriculum", true);
 
     NeuralBotFactory::CreateAccounts();
 
@@ -130,6 +131,8 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
             {
                 it->second->ResetRewardTracking();
                 it->second->ReviveIfDead();
+                if (_curriculumStaging)
+                    it->second->StageEpisodeStart();
             }
         }
         else

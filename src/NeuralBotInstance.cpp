@@ -206,6 +206,64 @@ void NeuralBotInstance::ReviveIfDead()
     _stepsWithoutReward = 0;
 }
 
+void NeuralBotInstance::StageEpisodeStart()
+{
+    // Curriculum staging (ROADMAP §7): when a bot starts an episode too far from any
+    // hostile to reach it within a reasonable fraction of the episode, teleport it to
+    // ~12 yd of the nearest one. This collapses the ~190-step approach phase that made
+    // the native XP reward effectively unreachable for credit assignment; rewards stay
+    // 100% native — only the starting distribution changes. Once the policy fights
+    // reliably, staging is disabled (config) and spawn positions restore the challenge.
+    Player* bot = _player;
+    if (!bot || !bot->IsAlive() || !bot->IsInWorld() || bot->IsInCombat())
+        return;
+
+    float const scanRange = 120.0f;
+    std::list<Unit*> units;
+    Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, scanRange);
+    Acore::UnitListSearcher<decltype(check)> searcher(bot, units, check);
+    Cell::VisitObjects(bot, searcher, scanRange);
+
+    Unit* nearest = nullptr;
+    float bestDist = scanRange + 1.0f;
+    for (Unit* u : units)
+    {
+        if (!u || !u->IsAlive() || u->IsCritter())
+            continue;
+        float d = bot->GetDistance(u);
+        if (d < bestDist)
+        {
+            bestDist = d;
+            nearest = u;
+        }
+    }
+
+    // Already in reach of a fight — nothing to stage.
+    if (bestDist <= 60.0f)
+        return;
+    if (!nearest)
+        return;
+
+    // Touchdown point ~12 yd from the mob, approached from the bot's current side.
+    float dx = bot->GetPositionX() - nearest->GetPositionX();
+    float dy = bot->GetPositionY() - nearest->GetPositionY();
+    float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 0.1f)
+    {
+        dx = 1.0f;
+        dy = 0.0f;
+        len = 1.0f;
+    }
+    float x = nearest->GetPositionX() + dx / len * 12.0f;
+    float y = nearest->GetPositionY() + dy / len * 12.0f;
+    float z = nearest->GetPositionZ();
+    float o = nearest->GetAngle(bot);
+
+    bot->GetMotionMaster()->Clear();
+    bot->NearTeleportTo(x, y, z, o);
+    LOG_DEBUG("module.neuralbot", "'{}' staged to fight (was {:.0f} yd out)", GetName(), bestDist);
+}
+
 void NeuralBotInstance::OnPlayerCreatureKill(Creature* killed)
 {
     _killCount += 1.0f;

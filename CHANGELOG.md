@@ -4,6 +4,16 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.4.3] — 2026-08-18
+
+### Added
+- **Curriculum staging (ROADMAP §7, config `NeuralBot.Curriculum`, default on):** at
+  episode start, bots with no hostile within 60 yd are teleported (`NearTeleportTo`) to
+  ~12 yd of the nearest hostile (120 yd scan, critters excluded). Collapses the ~190-step
+  approach phase that kept the native XP reward outside any practical credit horizon;
+  rewards stay 100% native — only the episode starting distribution changes. Disable to
+  restore full-spawn difficulty once the combat loop is learned.
+
 ## [0.4.2] — 2026-08-18
 
 ### Changed
