@@ -4,6 +4,18 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.4.2] — 2026-08-18
+
+### Changed
+- **PPO credit horizon for sparse delayed reward (v6 run):** gamma 0.99 → 0.999,
+  gae_lambda 0.95 → 0.98, ent_coef 0.05 → 0.02. Evidence from ~180M v5 steps: kills/ep
+  rose 0.022 → 0.08 only to re-establish identically after a character reset (policy
+  preserved) — i.e. the curve tracked bots spreading from the spawn clump, not learning;
+  entropy never left maximum. Root cause: with gamma=0.99 the ~100-step credit horizon
+  cannot span the ~190-step approach to a mob, so approach actions receive no credit for
+  the kill they enable. 0.999 (~1000 steps) puts XP inside the window.
+- Watchdog resumes model lineage v6.
+
 ## [0.4.1] — 2026-08-18
 
 ### Fixed

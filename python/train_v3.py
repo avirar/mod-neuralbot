@@ -190,10 +190,13 @@ def main():
             n_steps=256,
             batch_size=batch_size,
             learning_rate=3e-4,
-            gamma=0.99,
-            gae_lambda=0.95,
+            # Sparse delayed reward: a kill needs ~190 steps of approach before combat,
+            # so the discount horizon must cover it (0.99 -> ~100 steps was too short;
+            # 0.999 -> ~1000 steps puts the XP inside the credit window).
+            gamma=0.999,
+            gae_lambda=0.98,
             clip_range=0.2,
-            ent_coef=0.05,
+            ent_coef=0.02,
         )
         print(f"Fresh model created.", flush=True)
 
