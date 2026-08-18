@@ -8,7 +8,7 @@ set -u
 
 MODULE_DIR="/home/luke/GIT/azerothcore-wotlk/modules/mod-neuralbot"
 BIN_DIR="/home/luke/GIT/azerothcore-wotlk/env/dist/bin"
-FLAG="/tmp/neuralbot_maintenance"
+FLAG="$MODULE_DIR/.maintenance"
 MODEL_PREFIX="wow_neuralbot_model_v5"
 LOG="$MODULE_DIR/python/logs/watchdog.log"
 DB="mysql -u acore -pabc -h 127.0.0.1 -N -e"
