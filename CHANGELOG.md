@@ -4,6 +4,17 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.4.4] — 2026-08-18
+
+### Fixed
+- **Frame was 84% bot-clutter — hostiles invisible (v7 run).** All 400 bots share racial
+  spawn points, so the distance-sorted 64-slot entity list was filled by ~54 friendly
+  player-bots at 0-3 yd plus critters; the attackable mobs never entered the observation
+  and TARGET_ENTITY_i pointed at clutter (0/400 bots could see a mob). Frame now excludes
+  critters and caps players at the 4 nearest: 211/400 bots see an attackable mob
+  (median 26 yd). Note: starter-area mobs read as reaction=NEUTRAL until attacked —
+  attackable = creature && reaction != FRIENDLY.
+
 ## [0.4.3] — 2026-08-18
 
 ### Added

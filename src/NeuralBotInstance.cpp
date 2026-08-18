@@ -569,6 +569,7 @@ void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
     // ── entities: nearby units + gameobjects ────────────────────────────
     std::vector<NBEntityRec> entities;
     std::vector<ObjectGuid> entityGuids; // parallel to entities — true ObjectGuids for action resolution
+    size_t nPlayerEntities = 0;
     entities.reserve(NB_MAX_ENTITIES + 16);
     if (bot->IsInWorld())
     {
@@ -582,6 +583,15 @@ void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
         for (Unit* u : units)
         {
             if (!u || !u->IsAlive())
+                continue;
+            // Critters are observation noise (unattackable, uninteresting).
+            if (u->IsCritter())
+                continue;
+            // Cap players at the 4 nearest: 400 bots share racial spawn points, so
+            // the distance-sorted 64-slot entity list was 84% friendly bot-clutter at
+            // dist 0-3 yd — hostile mobs never entered the frame at all. 4 slots keep
+            // player awareness without crowding out creatures/gameobjects.
+            if (u->IsPlayer() && ++nPlayerEntities > 4)
                 continue;
             NBEntityRec rec{};
             rec.guid = u->GetGUID().GetRawValue();
