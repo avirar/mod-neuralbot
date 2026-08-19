@@ -55,16 +55,20 @@ class EpisodeStatsCallback(BaseCallback):
         super().__init__(verbose)
         self.db_config = db_config
         self.episode_num = 0
-        self.current_actions = np.zeros(ACTION_COUNT, dtype=np.int32)
-        self._ep_rewards = [0.0] * NUM_BOTS
-        self._ep_lengths = [0] * NUM_BOTS
-        self._ep_xp = [0.0] * NUM_BOTS
-        self._ep_kill = [0.0] * NUM_BOTS
-        self._ep_enemy_prox = [0.0] * NUM_BOTS
-        self._ep_target_acq = [0.0] * NUM_BOTS
-        self._ep_quest_prox = [0.0] * NUM_BOTS
+        self.current_actions = np.zeros(ACTION_COUNT, dtype=np.int64)
+        n = NUM_BOTS
+        self._ep_rewards = np.zeros(n)
+        self._ep_lengths = np.zeros(n, dtype=np.int64)
+        self._ep_xp = np.zeros(n)
+        self._ep_kill = np.zeros(n)
+        self._ep_enemy_prox = np.zeros(n)
+        self._ep_target_acq = np.zeros(n)
+        self._ep_quest_prox = np.zeros(n)
         self._rollout_rows = []
         self._conn = None
+        # reward-component column indices (REWARD_COMPONENT_KEYS order)
+        from neuralbot_client import REWARD_COMPONENT_KEYS as _RCK
+        self._rc_idx = {k: i for i, k in enumerate(_RCK)}
 
     def _get_conn(self):
         if self._conn is None:
@@ -78,46 +82,50 @@ class EpisodeStatsCallback(BaseCallback):
         dones = self.locals.get("dones", [])
         actions = self.locals.get("actions", [])
         rewards = self.locals.get("rewards", [])
-        infos = self.locals.get("infos", [])
 
-        for i in range(len(dones)):
-            if i < len(actions):
-                self.current_actions[int(actions[i])] += 1
-            if i < len(rewards):
-                self._ep_rewards[i] += float(rewards[i])
-                self._ep_lengths[i] += 1
-            if i < len(infos):
-                rc = infos[i].get("reward_components", {})
-                self._ep_xp[i]         += rc.get("xp", 0.0)
-                self._ep_kill[i]       += rc.get("kill", 0.0)
-                self._ep_enemy_prox[i] += rc.get("enemy_proximity", 0.0)
-                self._ep_target_acq[i] += rc.get("target_acquired", 0.0)
-                self._ep_quest_prox[i] += rc.get("quest_proximity", 0.0)
+        # Vectorized accumulation over all envs (was a 400-iteration python loop/step).
+        if len(actions):
+            self.current_actions += np.bincount(
+                np.asarray(actions, dtype=np.int64), minlength=ACTION_COUNT)
+        if len(rewards):
+            self._ep_rewards += np.asarray(rewards, dtype=np.float64)
+        self._ep_lengths += 1
 
-            if dones[i] and i < len(infos):
-                row = (
-                    self.episode_num,
-                    round(self._ep_rewards[i], 4),
-                    self._ep_lengths[i],
-                    round(self._ep_xp[i], 4),
-                    round(self._ep_kill[i], 4),
-                    round(infos[i].get("reward_components", {}).get("death", 0.0), 4),
-                    round(self._ep_quest_prox[i], 4),
-                    round(infos[i].get("reward_components", {}).get("quest_progress", 0.0), 4),
-                    round(self._ep_enemy_prox[i], 4),
-                    round(self._ep_target_acq[i], 4),
-                    *(int(self.current_actions[a]) for a in range(ACTION_COUNT)),
-                )
-                self._rollout_rows.append(row)
-                self.episode_num += 1
-                self.current_actions = np.zeros(ACTION_COUNT, dtype=np.int32)
-                self._ep_rewards[i] = 0.0
-                self._ep_lengths[i] = 0
-                self._ep_xp[i] = 0.0
-                self._ep_kill[i] = 0.0
-                self._ep_enemy_prox[i] = 0.0
-                self._ep_target_acq[i] = 0.0
-                self._ep_quest_prox[i] = 0.0
+        env = self.model.get_env()
+        comp = getattr(env, "last_components", None)
+        if comp is not None:
+            self._ep_xp         += comp[:, self._rc_idx["xp"]]
+            self._ep_kill       += comp[:, self._rc_idx["kill"]]
+            self._ep_enemy_prox += comp[:, self._rc_idx["enemy_proximity"]]
+            self._ep_target_acq += comp[:, self._rc_idx["target_acquired"]]
+            self._ep_quest_prox += comp[:, self._rc_idx["quest_proximity"]]
+
+        for i in np.nonzero(dones)[0]:
+            i = int(i)
+            rc = infos[i].get("reward_components", {}) if (infos := self.locals.get("infos", [])) and i < len(infos) else {}
+            row = (
+                self.episode_num,
+                round(float(self._ep_rewards[i]), 4),
+                int(self._ep_lengths[i]),
+                round(float(self._ep_xp[i]), 4),
+                round(float(self._ep_kill[i]), 4),
+                round(rc.get("death", 0.0), 4),
+                round(float(self._ep_quest_prox[i]), 4),
+                round(rc.get("quest_progress", 0.0), 4),
+                round(float(self._ep_enemy_prox[i]), 4),
+                round(float(self._ep_target_acq[i]), 4),
+                *self.current_actions.tolist(),
+            )
+            self._rollout_rows.append(row)
+            self.episode_num += 1
+            self.current_actions[:] = 0
+            self._ep_rewards[i] = 0.0
+            self._ep_lengths[i] = 0
+            self._ep_xp[i] = 0.0
+            self._ep_kill[i] = 0.0
+            self._ep_enemy_prox[i] = 0.0
+            self._ep_target_acq[i] = 0.0
+            self._ep_quest_prox[i] = 0.0
 
         return True
 

@@ -270,7 +270,18 @@ class SharedMemoryVecEnv(VecEnv):
     def step_wait(self):
         """Return the next harvested batch (obs may be 1 tick stale — pipelined)."""
         obs, rewards, dones, components = self._pop_result()
-        infos = self._build_infos(components)
+        # Vectorized fast path: per-env info dicts are built ONLY for done envs (rare,
+        # ~2-4%). The full components array is exposed as `last_components` for the
+        # stats callback to accumulate with numpy — the old path built 400 dicts ×
+        # 15 keys every step (several ms of pure-python per step).
+        self.last_components = components
+        self.last_rewards = rewards
+        infos = [{} for _ in range(self.num_bots)]
+        done_idx = np.nonzero(dones)[0]
+        for i in done_idx:
+            infos[i] = {"reward_components": {
+                key: float(components[i, j]) for j, key in enumerate(REWARD_COMPONENT_KEYS)
+            }}
         return obs, rewards, dones, infos
 
     def step(self, actions: np.ndarray):
