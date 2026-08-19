@@ -189,7 +189,7 @@ def main():
             verbose=1,
             n_steps=512,
             batch_size=batch_size,
-            learning_rate=7e-4,
+            learning_rate=4e-4,
             # Sparse delayed reward: a kill needs ~190 steps of approach before combat,
             # so the discount horizon must cover it (0.99 -> ~100 steps was too short;
             # 0.999 -> ~1000 steps puts the XP inside the credit window).
@@ -197,6 +197,10 @@ def main():
             gae_lambda=0.98,
             clip_range=0.2,
             ent_coef=0.005,
+            # KL guard: early-stop each rollout's epochs when the policy lurches
+            # (v8 @ lr 7e-4 collapsed explained_variance 0.94 -> 0.009 with
+            # clip_fraction 0.13 — advantage signal turned to noise).
+            target_kl=0.02,
         )
         print(f"Fresh model created.", flush=True)
 
