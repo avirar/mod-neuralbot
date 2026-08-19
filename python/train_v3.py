@@ -153,6 +153,7 @@ def main():
     host = os.environ.get("NEURALBOT_HOST", "127.0.0.1")
     port = int(os.environ.get("NEURALBOT_PORT", "9000"))
     timesteps = int(os.environ.get("NEURALBOT_TIMESTEPS", "20000000"))
+    learning_rate = float(os.environ.get("NEURALBOT_LR", "4e-4"))
     model_path = os.environ.get("NEURALBOT_MODEL", "wow_neuralbot_model_v3")
     model_zip = f"{model_path}.zip"
     has_previous = os.path.exists(model_zip)
@@ -184,7 +185,8 @@ def main():
     if has_previous:
         try:
             model = PPO.load(model_path, env=env)
-            print(f"Model loaded from {model_zip}. Will save final as {save_path}.zip", flush=True)
+            model.learning_rate = learning_rate  # allow NEURALBOT_LR to retune resumed runs
+            print(f"Model loaded from {model_zip} (lr={learning_rate}). Will save final as {save_path}.zip", flush=True)
         except Exception as e:
             print(f"Model load failed: {e}", flush=True)
             print("Creating fresh model (action/obs space may have changed).", flush=True)
@@ -197,7 +199,7 @@ def main():
             verbose=1,
             n_steps=512,
             batch_size=batch_size,
-            learning_rate=4e-4,
+            learning_rate=learning_rate,
             # Sparse delayed reward: a kill needs ~190 steps of approach before combat,
             # so the discount horizon must cover it (0.99 -> ~100 steps was too short;
             # 0.999 -> ~1000 steps puts the XP inside the credit window).
