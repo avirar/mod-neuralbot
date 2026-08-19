@@ -154,6 +154,7 @@ def main():
     port = int(os.environ.get("NEURALBOT_PORT", "9000"))
     timesteps = int(os.environ.get("NEURALBOT_TIMESTEPS", "20000000"))
     learning_rate = float(os.environ.get("NEURALBOT_LR", "4e-4"))
+    ent_coef = float(os.environ.get("NEURALBOT_ENT", "0.01"))
     model_path = os.environ.get("NEURALBOT_MODEL", "wow_neuralbot_model_v3")
     model_zip = f"{model_path}.zip"
     has_previous = os.path.exists(model_zip)
@@ -186,6 +187,7 @@ def main():
         try:
             model = PPO.load(model_path, env=env)
             model.learning_rate = learning_rate  # allow NEURALBOT_LR to retune resumed runs
+            model.ent_coef = ent_coef          # and NEURALBOT_ENT (0.005 over-commits and oscillates)
             print(f"Model loaded from {model_zip} (lr={learning_rate}). Will save final as {save_path}.zip", flush=True)
         except Exception as e:
             print(f"Model load failed: {e}", flush=True)
@@ -206,7 +208,7 @@ def main():
             gamma=0.999,
             gae_lambda=0.98,
             clip_range=0.2,
-            ent_coef=0.005,
+            ent_coef=ent_coef,
             # KL guard: early-stop each rollout's epochs when the policy lurches
             # (v8 @ lr 7e-4 collapsed explained_variance 0.94 -> 0.009 with
             # clip_fraction 0.13 — advantage signal turned to noise).
