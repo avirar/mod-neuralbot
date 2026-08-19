@@ -155,6 +155,8 @@ def main():
     timesteps = int(os.environ.get("NEURALBOT_TIMESTEPS", "20000000"))
     learning_rate = float(os.environ.get("NEURALBOT_LR", "4e-4"))
     ent_coef = float(os.environ.get("NEURALBOT_ENT", "0.01"))
+    n_steps_env = int(os.environ.get("NEURALBOT_NSTEPS", "1024"))
+    reward_clip = float(os.environ.get("NEURALBOT_REWARD_CLIP", "0.3"))
     model_path = os.environ.get("NEURALBOT_MODEL", "wow_neuralbot_model_v3")
     model_zip = f"{model_path}.zip"
     has_previous = os.path.exists(model_zip)
@@ -185,7 +187,7 @@ def main():
 
     if has_previous:
         try:
-            model = PPO.load(model_path, env=env)
+            model = PPO.load(model_path, env=env, custom_objects={"n_steps": n_steps_env})
             model.learning_rate = learning_rate  # allow NEURALBOT_LR to retune resumed runs
             model.ent_coef = ent_coef          # and NEURALBOT_ENT (0.005 over-commits and oscillates)
             print(f"Model loaded from {model_zip} (lr={learning_rate}). Will save final as {save_path}.zip", flush=True)
@@ -199,7 +201,7 @@ def main():
             "MlpPolicy",
             env,
             verbose=1,
-            n_steps=512,
+            n_steps=n_steps_env,
             batch_size=batch_size,
             learning_rate=learning_rate,
             # Sparse delayed reward: a kill needs ~190 steps of approach before combat,

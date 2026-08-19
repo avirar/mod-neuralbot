@@ -145,8 +145,9 @@ QUEUE_MAXLEN = 3
 class SharedMemoryVecEnv(VecEnv):
     """VecEnv-compatible wrapper using shared memory for batch stepping."""
 
-    def __init__(self, timeout: float = 30.0):
+    def __init__(self, timeout: float = 30.0, reward_clip: float = 0.3):
         self.timeout = timeout
+        self.reward_clip = reward_clip
         self._closed = False
 
         self._connect()
@@ -270,6 +271,10 @@ class SharedMemoryVecEnv(VecEnv):
     def step_wait(self):
         """Return the next harvested batch (obs may be 1 tick stale — pipelined)."""
         obs, rewards, dones, components = self._pop_result()
+        # Spike cap (variance reduction): level-up bonuses are ~25x the mean episode
+        # reward; uncapped they dominate advantages and destabilize the value function.
+        if self.reward_clip > 0:
+            np.clip(rewards, -1.0, self.reward_clip, out=rewards)
         # Vectorized fast path: per-env info dicts are built ONLY for done envs (rare,
         # ~2-4%). The full components array is exposed as `last_components` for the
         # stats callback to accumulate with numpy — the old path built 400 dicts ×
