@@ -191,8 +191,14 @@ def main():
             model = PPO.load(model_path, env=env, custom_objects={"n_steps": n_steps_env})
             model.learning_rate = learning_rate  # allow NEURALBOT_LR to retune resumed runs
             model.ent_coef = ent_coef          # and NEURALBOT_ENT (0.005 over-commits and oscillates)
-            model.target_kl = target_kl        # and NEURALBOT_KL (0.02 permits mode-dropping drift)
-            print(f"Model loaded from {model_zip} (lr={learning_rate}). Will save final as {save_path}.zip", flush=True)
+            # SBX does not serialize target_kl, so every loaded model silently loses the
+            # KL guard (adaptive_lr is only built in _setup_model when target_kl is set).
+            # Rebuild it explicitly — this was inactive for all of v9i3/v10/v11.
+            if target_kl is not None:
+                from sbx.common.utils import KLAdaptiveLR
+                model.target_kl = target_kl
+                model.adaptive_lr = KLAdaptiveLR(target_kl, model.lr_schedule(1.0))
+            print(f"Model loaded from {model_zip} (lr={learning_rate}, kl={target_kl}). Will save final as {save_path}.zip", flush=True)
         except Exception as e:
             print(f"Model load failed: {e}", flush=True)
             print("Creating fresh model (action/obs space may have changed).", flush=True)
