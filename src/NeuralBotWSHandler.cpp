@@ -28,14 +28,42 @@ void NeuralBotWSHandler::Stop()
     _running = false;
     if (_ioContext)
         _ioContext->stop();
+
+    // The accept thread blocks in a raw accept() that io_context::stop() cannot wake.
+    // Closing the acceptor + poking the port with a dummy connection makes accept()
+    // return (error / spurious wake) so the loop can observe _running and exit.
+    if (_acceptor)
+    {
+        boost::system::error_code ec;
+        _acceptor->close(ec);
+        try
+        {
+            boost::asio::io_context io;
+            tcp::socket poke(io);
+            poke.connect(tcp::endpoint(boost::asio::ip::address_v4::loopback(), _port));
+        }
+        catch (...) { /* port may already be gone — fine */ }
+    }
+
+    // Timed join: never let shutdown hang on this legacy debug thread (glibc ext).
     if (_thread.joinable())
-        _thread.join();
+    {
+        timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 2;
+        void* threadResult = nullptr;
+        if (pthread_timedjoin_np(_thread.native_handle(), &threadResult, &ts) != 0)
+        {
+            LOG_WARN("module.neuralbot", "TCP accept thread did not stop in 2s — detaching");
+            _thread.detach();
+        }
+    }
 }
 
 void NeuralBotWSHandler::AcceptLoop()
 {
     _ioContext = std::make_shared<boost::asio::io_context>();
-    tcp::acceptor acceptor(*_ioContext, tcp::endpoint(tcp::v4(), _port));
+    _acceptor = std::make_shared<tcp::acceptor>(*_ioContext, tcp::endpoint(tcp::v4(), _port));
 
     while (_running)
     {
@@ -43,7 +71,7 @@ void NeuralBotWSHandler::AcceptLoop()
         {
             tcp::socket socket(*_ioContext);
             boost::system::error_code ec;
-            acceptor.accept(socket, ec);
+            _acceptor->accept(socket, ec);
             if (ec)
                 continue;
             std::thread(&NeuralBotWSHandler::HandleClient, this, std::move(socket)).detach();

@@ -10,6 +10,9 @@
 #include <functional>
 #include <boost/asio.hpp>
 
+#include <pthread.h>
+#include <time.h>
+
 using boost::asio::ip::tcp;
 
 class NeuralBotWSHandler
@@ -49,6 +52,7 @@ private:
     uint16 _port = 9000;
     std::thread _thread;
     std::shared_ptr<boost::asio::io_context> _ioContext;
+    std::shared_ptr<tcp::acceptor> _acceptor;
 
 public:
     ~NeuralBotWSHandler()
