@@ -1240,6 +1240,18 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         if (target)
         {
             InjectCMSG(CMSG_SET_SELECTION, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
+            // Interim scaffold: also close distance when out of melee reach. The level-1
+            // population sees mobs (50%) but rarely sustains MOVE→ATTACK long enough to
+            // engage (1% combat); the leveled cohort that enters the loop keeps fighting
+            // (64% combat @ lvl5) — collapsing approach+attack into one action gives the
+            // stuck mass a single-action path into the loop. Remove with §3 cleanup.
+            if (bot->GetDistance(target) > 4.5f && target->IsAlive())
+            {
+                MotionMaster* mm = bot->GetMotionMaster();
+                mm->Clear();
+                mm->MovePoint(0, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(),
+                    FORCED_MOVEMENT_NONE, 0.0f, 0.0f, /*generatePath=*/true, /*forceDestination=*/false);
+            }
             InjectCMSG(CMSG_ATTACKSWING, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
         }
         return;
