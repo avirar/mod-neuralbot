@@ -41,6 +41,15 @@ public:
     {
         sNeuralBotMgr.OnWorldUpdate(diff);
     }
+
+    void OnShutdown() override
+    {
+        // Join the legacy TCP accept thread before static destruction — a joinable
+        // std::thread destructor at exit() triggers std::terminate (SIGABRT) and was
+        // turning every graceful worldserver shutdown into a crash corpse.
+        if (sNeuralBotWS.IsRunning())
+            sNeuralBotWS.Stop();
+    }
 };
 
 class NeuralBotPlayerScript : public PlayerScript

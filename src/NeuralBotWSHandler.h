@@ -49,6 +49,15 @@ private:
     uint16 _port = 9000;
     std::thread _thread;
     std::shared_ptr<boost::asio::io_context> _ioContext;
+
+public:
+    ~NeuralBotWSHandler()
+    {
+        // Safety net if Stop() was never called (static destructor at exit):
+        // detach instead of aborting on a joinable thread.
+        if (_thread.joinable())
+            _thread.detach();
+    }
 };
 
 #define sNeuralBotWS NeuralBotWSHandler::instance()
