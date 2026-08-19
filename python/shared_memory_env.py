@@ -17,7 +17,10 @@ DreamerV3 policy (ROADMAP §5) will consume the records directly instead.
 import mmap
 import os
 import struct
+import threading
+import time
 import numpy as np
+from collections import deque
 from typing import Optional, Sequence
 
 from neuralbot_client import (
@@ -133,6 +136,12 @@ def flatten_frames(frames: np.ndarray) -> np.ndarray:
     return obs
 
 
+# Pipelined harvest queue: the reader thread continuously pulls frame batches into a
+# small deque so the trainer consumes 1-tick-stale observations (standard frame-skip
+# semantics) while C++ never idles waiting for Python. C++ backpressures on obs_ready.
+QUEUE_MAXLEN = 3
+
+
 class SharedMemoryVecEnv(VecEnv):
     """VecEnv-compatible wrapper using shared memory for batch stepping."""
 
@@ -151,6 +160,13 @@ class SharedMemoryVecEnv(VecEnv):
         )
         action_space = gym.spaces.Discrete(ACTION_COUNT)
         super().__init__(self.num_envs, observation_space, action_space)
+
+        # ── reader thread: harvest frames as fast as C++ produces them ──
+        self._queue: deque = deque(maxlen=QUEUE_MAXLEN)
+        self._cond = threading.Condition()
+        self._reader_stop = threading.Event()
+        self._reader = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader.start()
 
     def _connect(self):
         # Wait for shared memory to appear
@@ -212,6 +228,39 @@ class SharedMemoryVecEnv(VecEnv):
 
     # ─── VecEnv API ──────────────────────────────────────────────────
 
+    def _reader_loop(self):
+        """Continuously harvest frame batches. Copies everything out, clears obs_ready
+        immediately (releases C++ backpressure), pushes into the queue."""
+        while not self._reader_stop.is_set():
+            if self._get_flag("obs_ready") != 1:
+                time.sleep(0.0002)
+                continue
+            try:
+                frames = self._frames[:self.num_bots]
+                obs = flatten_frames(frames)
+                rewards = np.array(frames["reward"]["total"], copy=True)
+                components = np.array(frames["reward"]["components"], copy=True)
+                dones = self._dones[:self.num_bots].copy().astype(bool)
+            except BufferError:
+                continue
+            # Release C++ *after* copying — the backpressure guard in ProcessSharedMemoryStep
+            self._set_flag("obs_ready", 0)
+            with self._cond:
+                if len(self._queue) == self._queue.maxlen:
+                    self._queue.popleft()  # drop oldest rather than block the harvester
+                self._queue.append((obs, rewards, dones, components))
+                self._cond.notify()
+
+    def _pop_result(self):
+        deadline = time.monotonic() + self.timeout
+        with self._cond:
+            while not self._queue:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Timed out waiting for server step")
+                self._cond.wait(timeout=min(remaining, 1.0))
+            return self._queue.popleft()
+
     def step_async(self, actions: np.ndarray):
         """Write all actions to shared memory and signal the server."""
         self._actions[:] = actions.astype(np.uint8)
@@ -219,18 +268,8 @@ class SharedMemoryVecEnv(VecEnv):
         struct.pack_into("<I", self._mm, self._ctrl_actions_ready_off, 1)
 
     def step_wait(self):
-        """Block until server processes actions, then read results."""
-        self._wait_eventfd()
-
-        frames = self._frames[:self.num_bots]
-        obs = flatten_frames(frames)
-        rewards = np.array(frames["reward"]["total"], copy=True)
-        components = np.array(frames["reward"]["components"], copy=True)
-        dones = self._dones[:self.num_bots].copy().astype(bool)
-
-        # Clear obs_ready so C++ can signal next time
-        self._set_flag("obs_ready", 0)
-
+        """Return the next harvested batch (obs may be 1 tick stale — pipelined)."""
+        obs, rewards, dones, components = self._pop_result()
         infos = self._build_infos(components)
         return obs, rewards, dones, infos
 
@@ -247,6 +286,10 @@ class SharedMemoryVecEnv(VecEnv):
         if self._closed:
             return
         self._closed = True
+        if hasattr(self, '_reader_stop'):
+            self._reader_stop.set()
+            if hasattr(self, '_reader') and self._reader.is_alive():
+                self._reader.join(timeout=2.0)
         self._set_flag("shutdown", 1)
         if hasattr(self, '_mm') and self._mm:
             # Release numpy views before closing mmap to avoid BufferError

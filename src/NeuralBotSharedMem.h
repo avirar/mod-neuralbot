@@ -58,6 +58,11 @@ public:
     // Called from world thread — returns true if Python wrote new actions
     bool TryReadActions(uint8_t* outActions, size_t numBots);
 
+    // Pipelined protocol: true while Python has not yet consumed the last frame batch.
+    // C++ must not overwrite frames (or dones) while this is set — the Python reader
+    // thread clears it within ~1ms of harvesting.
+    bool ObservationsPending() const;
+
     // Write observation frames/rewards/dones for all bots, then signal Python
     void WriteFrames(const uint8_t* frames, const uint8_t* dones, size_t numBots);
     void SignalObservationsReady();

@@ -4,6 +4,23 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.5.0] — 2026-08-19
+
+### Changed
+- **Pipelined shm protocol (throughput architecture):** Python no longer sits in the
+  step critical path. A harvester thread continuously copies frame batches into a
+  depth-3 queue (clearing `obs_ready` immediately); the trainer consumes 1-tick-stale
+  observations (standard frame-skip semantics) while C++ never idles waiting for
+  Python. C++ gains an `ObservationsPending()` backpressure guard so frames are never
+  torn mid-copy. Step rate is now min(C++, Python) with full overlap instead of the sum
+  of latencies (C++ 18.5k/s, python 15.6k/s measured). Also retires the broken
+  cross-process eventfd wait (was falling back to polling anyway).
+- `MapUpdate.Threads` 3 → 5 in worldserver.conf.
+
+### Fixed
+- v8 lr 7e-4 instability follow-up: v9 runs lr 4e-4 + `target_kl=0.02` (KL-guard
+  early-stop), warm-started from the v8 60M pre-collapse peak.
+
 ## [0.4.4] — 2026-08-18
 
 ### Fixed

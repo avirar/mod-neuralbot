@@ -104,6 +104,12 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
     if (!sNeuralBotShm.IsCreated())
         return;
 
+    // Pipelined protocol backpressure: never overwrite frames the Python reader has
+    // not harvested yet (it clears obs_ready within ~1ms). Without this guard a fast
+    // C++ side could tear the frame batch Python is copying out.
+    if (sNeuralBotShm.ObservationsPending())
+        return;
+
     uint8_t actions[SHM_MAX_BOTS];
     if (!sNeuralBotShm.TryReadActions(actions, _botCount))
         return;

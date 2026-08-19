@@ -96,6 +96,12 @@ bool NeuralBotSharedMem::TryReadActions(uint8_t* outActions, size_t numBots)
     return true;
 }
 
+bool NeuralBotSharedMem::ObservationsPending() const
+{
+    if (!_ptr) return false;
+    return GetControl()->obs_ready == 1;
+}
+
 void NeuralBotSharedMem::WriteFrames(const uint8_t* frames, const uint8_t* dones, size_t numBots)
 {
     if (!_ptr) return;
