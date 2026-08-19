@@ -157,6 +157,7 @@ def main():
     ent_coef = float(os.environ.get("NEURALBOT_ENT", "0.01"))
     n_steps_env = int(os.environ.get("NEURALBOT_NSTEPS", "1024"))
     reward_clip = float(os.environ.get("NEURALBOT_REWARD_CLIP", "0.3"))
+    target_kl = float(os.environ.get("NEURALBOT_KL", "0.008"))
     model_path = os.environ.get("NEURALBOT_MODEL", "wow_neuralbot_model_v3")
     model_zip = f"{model_path}.zip"
     has_previous = os.path.exists(model_zip)
@@ -190,6 +191,7 @@ def main():
             model = PPO.load(model_path, env=env, custom_objects={"n_steps": n_steps_env})
             model.learning_rate = learning_rate  # allow NEURALBOT_LR to retune resumed runs
             model.ent_coef = ent_coef          # and NEURALBOT_ENT (0.005 over-commits and oscillates)
+            model.target_kl = target_kl        # and NEURALBOT_KL (0.02 permits mode-dropping drift)
             print(f"Model loaded from {model_zip} (lr={learning_rate}). Will save final as {save_path}.zip", flush=True)
         except Exception as e:
             print(f"Model load failed: {e}", flush=True)
@@ -214,7 +216,7 @@ def main():
             # KL guard: early-stop each rollout's epochs when the policy lurches
             # (v8 @ lr 7e-4 collapsed explained_variance 0.94 -> 0.009 with
             # clip_fraction 0.13 — advantage signal turned to noise).
-            target_kl=0.02,
+            target_kl=target_kl,
         )
         print(f"Fresh model created.", flush=True)
 
