@@ -158,6 +158,8 @@ def main():
     n_steps_env = int(os.environ.get("NEURALBOT_NSTEPS", "1024"))
     reward_clip = float(os.environ.get("NEURALBOT_REWARD_CLIP", "0.3"))
     target_kl = float(os.environ.get("NEURALBOT_KL", "0.008"))
+    if target_kl == 0:
+        target_kl = None  # 0 disables the KL guard entirely
     model_path = os.environ.get("NEURALBOT_MODEL", "wow_neuralbot_model_v3")
     model_zip = f"{model_path}.zip"
     has_previous = os.path.exists(model_zip)
@@ -191,13 +193,24 @@ def main():
             model = PPO.load(model_path, env=env, custom_objects={"n_steps": n_steps_env})
             model.learning_rate = learning_rate  # allow NEURALBOT_LR to retune resumed runs
             model.ent_coef = ent_coef          # and NEURALBOT_ENT (0.005 over-commits and oscillates)
-            # SBX does not serialize target_kl, so every loaded model silently loses the
-            # KL guard (adaptive_lr is only built in _setup_model when target_kl is set).
-            # Rebuild it explicitly — this was inactive for all of v9i3/v10/v11.
+            # Rebuild the lr schedule from the (possibly retuned) learning rate — the
+            # serialized lr_schedule would otherwise keep the old base LR.
+            model._setup_lr_schedule()
+            # SBX 0.25.0 *does* serialize target_kl + adaptive_lr, so a warm-started
+            # model keeps whatever guard (and its adaptive LR floor) it was saved with.
+            # Rebuild for the requested config, or clear both to fully disable the guard.
             if target_kl is not None:
                 from sbx.common.utils import KLAdaptiveLR
                 model.target_kl = target_kl
                 model.adaptive_lr = KLAdaptiveLR(target_kl, model.lr_schedule(1.0))
+                # Never let the adaptive LR exceed the chosen base LR — it is a brake
+                # only (KLAdaptiveLR's default max is 1e-2, 40x our base, which caused
+                # overshoot when the KL recovered from the floor).
+                model.adaptive_lr.max_learning_rate = learning_rate
+            else:
+                # NEURALBOT_KL=0 — fully disable the guard.
+                model.target_kl = None
+                model.adaptive_lr = None
             print(f"Model loaded from {model_zip} (lr={learning_rate}, kl={target_kl}). Will save final as {save_path}.zip", flush=True)
         except Exception as e:
             print(f"Model load failed: {e}", flush=True)

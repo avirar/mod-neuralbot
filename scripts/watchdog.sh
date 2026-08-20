@@ -48,7 +48,11 @@ start_trainer() {
     fi
     cd "$MODULE_DIR"
     source .venv/bin/activate
-    NEURALBOT_MODEL="$MODEL_PREFIX" NEURALBOT_TIMESTEPS=1000000000 NEURALBOT_LR="${NEURALBOT_LR:-2.5e-4}" \
+    # Hyperparameters track the active experiment. NEURALBOT_KL=0 disables the KL
+    # guard (it was pinning LR at its 1e-5 floor; see train_v3.py). All three can be
+    # overridden via the systemd service environment.
+    NEURALBOT_MODEL="$MODEL_PREFIX" NEURALBOT_TIMESTEPS=1000000000 \
+        NEURALBOT_LR="${NEURALBOT_LR:-1.5e-4}" NEURALBOT_ENT="${NEURALBOT_ENT:-0.01}" NEURALBOT_KL="${NEURALBOT_KL:-0}" \
         nohup python3 python/train_v3.py > "python/logs/train_auto_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
     disown
     log "trainer launched (pid $!)"
