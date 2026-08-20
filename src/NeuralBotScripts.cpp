@@ -30,8 +30,12 @@ public:
     {
         if (sNeuralBotMgr.IsEnabled())
         {
-            uint16 port = sConfigMgr->GetOption<uint16>("NeuralBot.WebSocketPort", 9000);
-            sNeuralBotWS.Start(port);
+            // Legacy TCP debug handler (superseded by the shm protocol). Disabled by
+            // default (port 0) — running it spawns an accept thread that has caused
+            // shutdown crashes. Only enabled for interactive debugging.
+            uint16 port = sConfigMgr->GetOption<uint16>("NeuralBot.WebSocketPort", 0);
+            if (port > 0)
+                sNeuralBotWS.Start(port);
             sNeuralBotMgr.SpawnAndLoginBots();
             LOG_INFO("module.neuralbot", "NeuralBot world script started");
         }

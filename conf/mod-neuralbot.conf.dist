@@ -1,5 +1,7 @@
 NeuralBot.Enable = 1
-NeuralBot.WebSocketPort = 9000
+# Legacy TCP debug handler (superseded by the shm protocol). 0 = disabled.
+# Keep disabled — the accept thread has caused shutdown crashes. Enable only for debugging.
+NeuralBot.WebSocketPort = 0
 NeuralBot.TickRateMs = 50
 NeuralBot.BotCharacterName = "Neuralbot"
 NeuralBot.BotAccountId = 0

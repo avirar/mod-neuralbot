@@ -10,9 +10,6 @@
 #include <functional>
 #include <boost/asio.hpp>
 
-#include <pthread.h>
-#include <time.h>
-
 using boost::asio::ip::tcp;
 
 class NeuralBotWSHandler

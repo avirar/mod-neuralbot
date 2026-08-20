@@ -26,38 +26,30 @@ void NeuralBotWSHandler::Start(uint16 port)
 void NeuralBotWSHandler::Stop()
 {
     _running = false;
-    if (_ioContext)
-        _ioContext->stop();
 
-    // The accept thread blocks in a raw accept() that io_context::stop() cannot wake.
-    // Closing the acceptor + poking the port with a dummy connection makes accept()
-    // return (error / spurious wake) so the loop can observe _running and exit.
+    // Wake the blocking accept() with a dummy loopback connection (the standard
+    // reliable technique), then close the listener and join cleanly. A plain
+    // std::thread::join() keeps std::thread bookkeeping correct — previously a
+    // raw pthread_timedjoin_np reaped the thread behind std::thread's back, which
+    // left joinable()==true and made the later detach() in the destructor
+    // segfault on a dangling pthread_t (use-after-free, intermittent per reboot).
+    try
+    {
+        boost::asio::io_context io;
+        tcp::socket poke(io);
+        boost::system::error_code ec;
+        poke.connect(tcp::endpoint(boost::asio::ip::address_v4::loopback(), _port), ec);
+    }
+    catch (...) { /* listener may already be gone — accept() will then error out */ }
+
     if (_acceptor)
     {
         boost::system::error_code ec;
         _acceptor->close(ec);
-        try
-        {
-            boost::asio::io_context io;
-            tcp::socket poke(io);
-            poke.connect(tcp::endpoint(boost::asio::ip::address_v4::loopback(), _port));
-        }
-        catch (...) { /* port may already be gone — fine */ }
     }
 
-    // Timed join: never let shutdown hang on this legacy debug thread (glibc ext).
     if (_thread.joinable())
-    {
-        timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += 2;
-        void* threadResult = nullptr;
-        if (pthread_timedjoin_np(_thread.native_handle(), &threadResult, &ts) != 0)
-        {
-            LOG_WARN("module.neuralbot", "TCP accept thread did not stop in 2s — detaching");
-            _thread.detach();
-        }
-    }
+        _thread.join();
 }
 
 void NeuralBotWSHandler::AcceptLoop()
