@@ -1,0 +1,15 @@
+[Unit]
+Description=NeuralBot training watchdog (worldserver + trainer auto-restart)
+
+[Service]
+ExecStart=/home/luke/GIT/azerothcore-wotlk/modules/mod-neuralbot/scripts/watchdog.sh
+Restart=always
+RestartSec=60
+# The watchdog launches worldserver/trainer as children (setsid + nohup). The default
+# KillMode=control-group would SIGTERM them every time this script exits and systemd
+# restarts it — causing the worldserver to shut down cleanly ~72s after each boot.
+# KillMode=process reaps only the script itself, leaving the children alive.
+KillMode=process
+
+[Install]
+WantedBy=default.target
