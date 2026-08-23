@@ -36,11 +36,10 @@ class WoWWorldModelEnv:
         import gymnasium as gym
 
         self.env_num = num_bots
+        # Only the payload is declared in the space (matches DMC: is_first/is_last/
+        # is_terminal are extra bool flags added at step time, not encoder inputs).
         self.observation_space = gym.spaces.Dict({
             "obs": gym.spaces.Box(-np.inf, np.inf, (obs_size,), np.float32),
-            "is_first": gym.spaces.Box(0, 1, (1,), np.float32),
-            "is_last": gym.spaces.Box(0, 1, (1,), np.float32),
-            "is_terminal": gym.spaces.Box(0, 1, (1,), np.float32),
         })
         # One-hot action space: the trainer feeds the actor's one-hot (B, 41) output
         # straight through; we argmax it back to an integer index. `.discrete=True`
@@ -64,16 +63,16 @@ class WoWWorldModelEnv:
 
         obs_flat, rewards, dones, comp = self._shm.step(idx)
 
-        is_first = self._is_first.astype(np.float32)                 # fresh this step
-        is_terminal = (comp[:, DEATH_COMPONENT] > 0).astype(np.float32)
-        is_last = dones.astype(np.float32)
-        self._is_first = dones                                        # fresh next step
+        is_first = self._is_first.copy()                 # bool (fresh this step)
+        is_terminal = comp[:, DEATH_COMPONENT] > 0        # bool (died this step)
+        is_last = dones.copy()                            # bool
+        self._is_first = dones.copy()                     # fresh next step
 
         td = TensorDict({
             "obs": torch.as_tensor(obs_flat, dtype=torch.float32),       # (B, 1148)
-            "is_first": torch.as_tensor(is_first),                       # (B,)
-            "is_last": torch.as_tensor(is_last),                         # (B,)
-            "is_terminal": torch.as_tensor(is_terminal),                 # (B,)
+            "is_first": torch.as_tensor(is_first, dtype=torch.bool),     # (B,)
+            "is_last": torch.as_tensor(is_last, dtype=torch.bool),       # (B,)
+            "is_terminal": torch.as_tensor(is_terminal, dtype=torch.bool),  # (B,)
             "reward": torch.as_tensor(rewards, dtype=torch.float32),     # (B,)
         }, batch_size=(self.env_num,))
 
