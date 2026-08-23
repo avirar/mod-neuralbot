@@ -102,6 +102,11 @@ public:
     {
         sNeuralBotMgr.OnPlayerbotPacketSent(player, packet);
     }
+
+    void OnPlayerbotActionExecuted(Player* player, std::string const& actionName, ObjectGuid target) override
+    {
+        sNeuralBotMgr.OnPlayerbotActionExecuted(player, actionName, target);
+    }
 };
 
 class NeuralBotServerScript : public ServerScript

@@ -18,6 +18,7 @@
 #include <array>
 #include <string>
 #include <future>
+#include <cstdio>
 
 class NeuralBotMgr
 {
@@ -31,6 +32,7 @@ public:
 
     void OnWorldUpdate(uint32 diff);
     void OnPlayerbotPacketSent(Player* player, WorldPacket const* packet);
+    void OnPlayerbotActionExecuted(Player* player, std::string const& actionName, ObjectGuid target);
     void OnPlayerLogin(Player* player);
     void OnPlayerJustDied(Player* player);
     void OnPlayerCreatureKill(Player* killer, Creature* killed);
@@ -55,9 +57,19 @@ private:
     bool ProcessPendingRequests();
     void ProcessSharedMemoryStep();
 
+    void InitBcRecorder();
+    void CloseBcRecorder();
+
     bool _enabled = false;
     bool _autoQuest = false;
     bool _curriculumStaging = false;
+
+    // Behavior-cloning demonstration recorder (playerbots): appends fixed-size
+    // NeuralBotBcRecord entries to the file named by NeuralBot.BcRecordPath.
+    FILE* _bcFile = nullptr;
+    uint32 _bcRecordEvery = 1;
+    uint64 _bcSeq = 0;
+    uint64 _bcCounter = 0;
 
     std::map<std::string, NeuralBotInstance*> _instances;
     std::map<ObjectGuid, NeuralBotInstance*> _instancesByGuid;

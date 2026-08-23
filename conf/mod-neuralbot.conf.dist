@@ -10,3 +10,10 @@ NeuralBot.LogPackets = 0
 NeuralBot.CleanupOnStartup = 0
 NeuralBot.AutoQuest = 1
 NeuralBot.BotCount = 400
+
+# Behavior-cloning demonstration recorder: when non-empty, appends fixed-size
+# NeuralBotBcRecord entries (header + full frame) for every playerbot action executed.
+# Used to record expert demonstrations from mod-playerbots for BC warm-start.
+NeuralBot.BcRecordPath = ""
+# Downsample factor: 1 = record every action, N = every Nth action.
+NeuralBot.BcRecordEvery = 1

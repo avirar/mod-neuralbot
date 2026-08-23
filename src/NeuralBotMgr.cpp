@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <sstream>
 #include <thread>
+#include <cstdio>
+#include <cstring>
 
 NeuralBotMgr& NeuralBotMgr::instance()
 {
@@ -47,12 +49,15 @@ void NeuralBotMgr::Initialize()
     else
         LOG_INFO("module.neuralbot", "Shared memory ready: {} bots, {:.1f} KB", _botCount, SHM_TOTAL_SIZE / 1024.0f);
 
+    InitBcRecorder();
+
     LOG_INFO("module.neuralbot", "NeuralBot manager initialized. Target: {} bots", _botCount);
 }
 
 void NeuralBotMgr::Shutdown()
 {
     _enabled = false;
+    CloseBcRecorder();
     sNeuralBotShm.Destroy();
     for (auto& [name, inst] : _instances)
         delete inst;
@@ -299,6 +304,62 @@ void NeuralBotMgr::OnPlayerbotPacketSent(Player* player, WorldPacket const* pack
     auto it = _instancesByGuid.find(player->GetGUID());
     if (it != _instancesByGuid.end())
         RecordOpcodeFor(player, packet->GetOpcode());
+}
+
+void NeuralBotMgr::InitBcRecorder()
+{
+    std::string path = sConfigMgr->GetOption<std::string>("NeuralBot.BcRecordPath", "");
+    _bcRecordEvery = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("NeuralBot.BcRecordEvery", 1));
+    if (path.empty())
+        return;
+
+    _bcFile = fopen(path.c_str(), "ab");
+    if (!_bcFile)
+    {
+        LOG_ERROR("module.neuralbot", "BC recorder: cannot open {} — recording disabled", path);
+        return;
+    }
+    // Append to an existing stream without a footer — records are self-delimiting by
+    // fixed NB_BC_RECORD_SIZE, so a partial tail (from a crash) is skipped by Python.
+    LOG_INFO("module.neuralbot", "BC recorder: writing demonstrations to {} (every {}th action)", path, _bcRecordEvery);
+}
+
+void NeuralBotMgr::CloseBcRecorder()
+{
+    if (_bcFile)
+    {
+        fflush(_bcFile);
+        fclose(_bcFile);
+        _bcFile = nullptr;
+        LOG_INFO("module.neuralbot", "BC recorder: closed after {} records", _bcSeq);
+    }
+}
+
+void NeuralBotMgr::OnPlayerbotActionExecuted(Player* player, std::string const& actionName, ObjectGuid target)
+{
+    if (!_bcFile || !player)
+        return;
+
+    // Downsample for long measurement runs (1 = record every action).
+    if (++_bcCounter % _bcRecordEvery != 0)
+        return;
+
+    NeuralBotBcRecord rec{};
+    rec.botGuid = player->GetGUID().GetRawValue();
+    rec.targetGuid = target.GetRawValue();
+    rec.seq = _bcSeq++;
+    std::strncpy(rec.name, actionName.c_str(), NB_BC_NAME_LEN - 1);
+    rec.name[NB_BC_NAME_LEN - 1] = '\0';
+
+    // Frame for the playerbot; reward tail stays zeroed (progress reconstructed
+    // from self xp/money/level deltas in Python).
+    BuildFrameFor(player, rec.frame, nullptr, nullptr);
+
+    fwrite(&rec, sizeof(rec), 1, _bcFile);
+
+    // Periodic flush so analysis can tail the file while recording is live.
+    if ((_bcSeq & 0x3FF) == 0)
+        fflush(_bcFile);
 }
 
 void NeuralBotMgr::RecordOpcodeFor(Player* player, uint16 opcode)

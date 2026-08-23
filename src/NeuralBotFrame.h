@@ -190,4 +190,25 @@ static_assert(sizeof(NBEntityRec) == 52, "NBEntityRec layout changed — mirror 
 static_assert(sizeof(NBItemRec) == 20, "NBItemRec layout changed — mirror in Python");
 static_assert(sizeof(NBStateReward) == 60, "NBStateReward layout changed — mirror in Python");
 
+// ── Behavior-cloning demonstration record ───────────────────────────────
+// Appended to the file set by `NeuralBot.BcRecordPath` (disabled when empty).
+// Fixed-size per record so Python can stream-parse without a schema. Layout:
+//   botGuid(8) targetGuid(8) seq(8) name[64] | frame (sizeof(NeuralBotFrame))
+constexpr size_t NB_BC_NAME_LEN      = 64;
+constexpr size_t NB_BC_RECORD_HEADER = 8 + 8 + 8 + NB_BC_NAME_LEN; // 88
+constexpr size_t NB_BC_RECORD_SIZE   = NB_BC_RECORD_HEADER + sizeof(NeuralBotFrame);
+
+#pragma pack(push, 1)
+struct NeuralBotBcRecord
+{
+    uint64_t botGuid;
+    uint64_t targetGuid;
+    uint64_t seq;
+    char name[NB_BC_NAME_LEN];
+    NeuralBotFrame frame;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(NeuralBotBcRecord) == NB_BC_RECORD_SIZE, "BC record layout changed");
+
 #endif // NEURALBOTFRAME_H

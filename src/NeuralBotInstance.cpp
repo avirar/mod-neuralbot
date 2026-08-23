@@ -502,9 +502,8 @@ void NeuralBotInstance::BuildObservationInto(NeuralBotObservation& obs)
     }
 }
 
-void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
+void BuildFrameFor(Player* bot, NeuralBotFrame& frame, ObjectGuid* entityGuidsOut, size_t* entityCountOut)
 {
-    Player* bot = _player;
     if (!bot)
         return;
 
@@ -658,16 +657,16 @@ void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
     }
 
     size_t nEntities = std::min<size_t>(entities.size(), NB_MAX_ENTITIES);
-    // Cache guids in frame order so TARGET_ENTITY_i (action) resolves to the same
-    // entity the policy observed at this step.
-    _frameEntityCount = nEntities;
+    // Optionally return guids in frame order so TARGET_ENTITY_i (action) resolves to
+    // the same entity the policy observed at this step.
+    if (entityCountOut)
+        *entityCountOut = nEntities;
     for (size_t i = 0; i < nEntities; ++i)
     {
         frame.entities[i] = entities[i];
-        _frameEntityGuids[i] = entityGuids[i];
+        if (entityGuidsOut)
+            entityGuidsOut[i] = entityGuids[i];
     }
-    for (size_t i = 0; i < nEntities; ++i)
-        frame.entities[i] = entities[i];
     frame.counts.nEntities = static_cast<uint16_t>(nEntities);
 
     // ── spells ──────────────────────────────────────────────────────────
@@ -771,6 +770,11 @@ void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
             frame.items[i] = items[i];
         frame.counts.nItems = static_cast<uint16_t>(nItems);
     }
+}
+
+void NeuralBotInstance::BuildFrame(NeuralBotFrame& frame)
+{
+    BuildFrameFor(_player, frame, _frameEntityGuids, &_frameEntityCount);
 }
 
 float NeuralBotInstance::ComputeReward(NeuralBotReward& out)

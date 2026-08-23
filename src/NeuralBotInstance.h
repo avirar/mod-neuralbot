@@ -17,6 +17,11 @@
 #include <condition_variable>
 #include <string>
 
+// Build a structured observation frame for an arbitrary Player (not just a NeuralBot).
+// Used by the BC demonstration recorder to observe playerbots; the reward tail is left
+// zeroed — progress is reconstructed from self xp/money/level deltas in Python.
+void BuildFrameFor(Player* player, NeuralBotFrame& frame, ObjectGuid* entityGuidsOut = nullptr, size_t* entityCountOut = nullptr);
+
 class NeuralBotInstance
 {
 public:
