@@ -4,6 +4,52 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.6.0] — 2026-08-23
+
+### Added
+- **Level-1 baseline spells at creation** (`NeuralBotFactory::LearnBaselineSpells`).
+  `Player::Create` auto-learns class/race spells via skill-line ability with
+  `temporary=true` (player not in world), so `_SaveSpells` skipped them; at login
+  `LearnDefaultSkills` skips re-learning because the *skills* were already saved — bots
+  ended up with zero spells. The factory now converts `PLAYERSPELL_TEMPORARY → NEW`
+  before the creation `SaveToDB` (400 bots now carry ~45 spells each) and explicitly
+  learns the few rank-1 abilities outside the auto-learn set (e.g. warlock Summon Imp).
+  Trainer-bought spells remain the ONLY path to higher ranks — no auto-maintenance.
+
+### Changed
+- **`spellLearned` is now a native reward term.** It was diagnostic-only (computed but
+  not summed). Learning a spell is native character progression (self-limiting:
+  `CanTeachSpell` blocks re-buying a known rank and money gates it), so it joins the
+  native total — `xp + gold + level + questCompleted + spellLearned − death` — to
+  shorten the otherwise-very-long walk→buy→cast→kill credit chain.
+- **Trainer visibility measured:** 151/400 bots (38%) have a trainer within the 60 yd
+  entity window (median 26.6 yd). The other 62% spawn too far out to discover trainers;
+  a curriculum staging offset toward trainers is a future lever (ROADMAP §6).
+
+### Fixed
+- **Shutdown crash class eliminated.** Two related bugs:
+  1. SIGABRT at exit — the static `NeuralBotWSHandler` destructor destroyed a joinable
+     accept thread (`std::terminate`). Added an `OnShutdown` hook + destructor detach.
+  2. The follow-up join-hang — `Stop()` used `pthread_timedjoin_np`, which reaped the
+     thread behind `std::thread`'s back, so the destructor's later `detach()` hit a
+     dangling pthread_t (use-after-free; intermittent across reboots). The legacy TCP
+     debug handler is dead code (shm superseded it), so `NeuralBot.WebSocketPort` now
+     defaults to **0 (disabled)** — no accept thread at all. When enabled, `Stop()`
+     wakes the blocking `accept()` with a dummy connect and does a clean `join()`.
+- **systemd watchdog was killing the stack every minute.** `neuralbot-watchdog.service`
+  used the default `KillMode=control-group`, so every time `watchdog.sh` exited (after
+  one pass) systemd SIGTERM'd everything in its cgroup — including the worldserver it
+  just spawned (~72 s after each boot, a clean `Halting process…`). Now
+  `KillMode=process` (reaps only the script); unit tracked in-repo at
+  `scripts/neuralbot-watchdog.service`.
+- **KL guard was pinning LR at its 1e-5 floor.** SBX 0.25.0 *does* serialize
+  `target_kl` + `adaptive_lr` (contrary to the earlier diagnosis), so a warm-started
+  model kept its stale guard braking at the floor. `NEURALBOT_KL=0` now fully disables
+  the guard (explicitly clears both); `_setup_lr_schedule()` rebuilds the LR schedule
+  after a retune; `adaptive_lr.max_learning_rate` is capped at the base LR so the guard
+  can only brake, never overshoot (its default max is 1e-2 = 40× base).
+  Watchdog now passes `NEURALBOT_ENT`/`NEURALBOT_KL` and defaults `NEURALBOT_LR=1.5e-4`.
+
 ## [0.5.0] — 2026-08-19
 
 ### Changed

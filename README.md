@@ -4,7 +4,7 @@ Reinforcement-learning bots for [AzerothCore](https://www.azerothcore.org/) (Wor
 
 NeuralBot injects client packets **server-side** to control hundreds of bot characters in a live game world, exposes their observations and a scalar reward over a shared-memory bus, and trains a policy with [SBX PPO](https://github.com/araffin/sbx) (JAX) in Python.
 
-> **Status:** experimental. The agent currently learns to level, fight, loot, and quest. Spell learning via trainers is wired up but not yet reliable (see [Known issues](#known-issues)).
+> **Status:** experimental. The agent currently learns to level, fight, loot, and quest. Bots are born with their level-1 baseline spells (v0.6.0); higher ranks are trainer-bought and must be learned by the policy (see [Known issues](#known-issues)).
 
 ---
 
@@ -82,31 +82,40 @@ For the SBX PPO `MlpPolicy`, `SharedMemoryVecEnv` projects each frame to a fixed
 structured records directly. The legacy 85-float vector still exists for the TCP
 `NeuralBotWSHandler` path (unused by training).
 
-## Action space (16 discrete actions)
+## Action space (41 discrete actions, v0.4.0)
+
+Point-navigation + entity-index targeting + spellbook-index casting. Entity/action
+indices are consistent with the distance-sorted `entities[]` and `spells[]` frame sections.
 
 | ID | Action | ID | Action |
 |----|--------|----|--------|
-| 0 | `NOOP` | 8 | `CAST_SPELL_1` |
-| 1 | `MOVE_FORWARD` | 9 | `CAST_SPELL_2` |
-| 2 | `MOVE_BACKWARD` | 10 | `CAST_SPELL_3` |
-| 3 | `TURN_LEFT` | 11 | `INTERACT_NPC` |
-| 4 | `TURN_RIGHT` | 12 | `COMPLETE_QUEST` |
-| 5 | `STOP_MOVE` | 13 | `TARGET_QUEST_GIVER` |
-| 6 | `TARGET_NEAREST_ENEMY` | 14 | `LOOT` |
-| 7 | `ATTACK_START` | 15 | `LEARN_SPELL` |
+| 0 | `NOOP` | 20–27 | `CAST_SPELL_0..7` (i-th spellbook entry) |
+| 1 | `MOVE_TO_TARGET` (navmesh; fallback nearest hostile) | 28 | `ATTACK_START` |
+| 2 | `STOP_MOVE` | 29 | `ATTACK_STOP` |
+| 3–6 | `MOVE_FORWARD/BACKWARD/TURN_LEFT/RIGHT` (legacy) | 30–37 | `TARGET_ENTITY_0..17` (i-th nearest entity) |
+| 7 | `TARGET_NEAREST_ENEMY` | 38 | `INTERACT_TARGET` (quest/trainer/vendor/chest, gated 5.5 yd) |
+| 8 | `TARGET_NEAREST_FRIENDLY` | 39 | `COMPLETE_QUEST` |
+| 9 | `TARGET_NEAREST_CORPSE` | 40 | `LOOT` |
 
-## Reward (native, v0.2.0)
+`TARGET_ENTITY_0` is ID 10, `TARGET_ENTITY_17` is ID 27; `CAST_SPELL_0` is ID 20,
+`CAST_SPELL_7` is ID 27. See `NeuralBotCommon.h` `enum NeuralBotAction` for the canonical
+list.
+
+## Reward (native, v0.2.0 + v0.6.0)
 
 Computed per step in `NeuralBotInstance::ComputeReward`. The scalar `total` is what PPO
 optimizes, and is **native only** — the game's own signal, no shaping:
 
 ```
-total = xpDelta + money(lootReward) + levelReward + questCompleted − deathPenalty
+total = xpDelta + money(lootReward) + levelReward + questCompleted + spellLearned − deathPenalty
 ```
 
-The remaining components are computed but **diagnostic-only** (logged to
-`neuralbot_episodes` for analysis, not summed). Level-ups are detected via
-`PLAYER_NEXT_LEVEL_XP` so a level boundary does not read as a negative XP delta.
+`spellLearned` (v0.6.0) is native character progression — self-limiting (a known rank
+can't be re-bought; money gates it), so it can't be gamed and it shortens the
+walk→buy→cast→kill credit chain. The remaining components are computed but
+**diagnostic-only** (logged to `neuralbot_episodes` for analysis, not summed). Level-ups
+are detected via `PLAYER_NEXT_LEVEL_XP` so a level boundary does not read as a negative
+XP delta.
 
 | Component | Summed? | Meaning |
 |-----------|---------|---------|
@@ -115,6 +124,7 @@ The remaining components are computed but **diagnostic-only** (logged to
 | `deathPenalty` | ✅ native | Bot died (sparse) |
 | `questCompleted` | ✅ native | Quest turned in (sparse) |
 | `levelReward` | ✅ native | Level-up milestone (sparse) |
+| `spellLearned` | ✅ native | Learned a new spell (v0.6.0) |
 | `damageTaken` | ❌ diagnostic | Damage received |
 | `killReward` | ❌ diagnostic | Enemy killed |
 | `questAccepted` | ❌ diagnostic | Accepted a quest |
@@ -122,7 +132,6 @@ The remaining components are computed but **diagnostic-only** (logged to
 | `questProgress` | ❌ diagnostic | Quest objective progress |
 | `enemyProximity` | ❌ diagnostic | Distance to nearest enemy |
 | `targetAcquired` | ❌ diagnostic | Acquired a new target |
-| `spellLearned` | ❌ diagnostic | Learned a new spell |
 | `trainerProximity` | ❌ diagnostic | Distance to trainer |
 | `timePenalty` | ❌ (disabled) | Constant small negative (`0.0`) |
 
@@ -168,7 +177,7 @@ Enable the module in `env/dist/etc/modules/mod-neuralbot.conf`.
 | `NeuralBot.Enable` | 1 | Enable the module |
 | `NeuralBot.BotCount` | 400 | Number of bot characters (10 per account) |
 | `NeuralBot.BotCharacterName` | `Neuralbot` | Name prefix (`NeuralbotA`, `NeuralbotB`, …) |
-| `NeuralBot.WebSocketPort` | 9000 | Legacy TCP control port |
+| `NeuralBot.WebSocketPort` | 0 | Legacy TCP control port (0 = disabled; superseded by shm) |
 | `NeuralBot.TickRateMs` | 50 | World-tick batching rate |
 | `NeuralBot.MaxEpisodeSteps` | 1000 | Episode length cap |
 | `NeuralBot.CleanupOnStartup` | 0 | Delete + recreate all bot accounts/chars on boot |
@@ -206,8 +215,15 @@ NeuralBot registers a `PlayerbotScript` (`OnPlayerbotPacketSent`) and therefore 
 
 ## Known issues
 
-- **Spell learning unreliable.** Bots find trainers but often fail the 5-yard interaction check (`ACTION_LEARN_SPELL` used heavily, zero spells learned in some runs). No friendly-targeting/navigation action exists to close the gap.
-- **`neuralbot_client.py` / `NeuralBotWSHandler.cpp` are legacy.** The TCP path is superseded by shared memory and kept only for debug/status. It still uses the old 85-float observation.
+- **Trainer navigation not yet learned.** Bots are born with level-1 baseline spells
+  (v0.6.0), but higher ranks require walking to a class trainer and buying them
+  (`INTERACT_TARGET` → `CMSG_TRAINER_BUY_SPELL`). The wiring is complete (trainers appear
+  in `entities[]` with the trainer NPC flag; ~38% of bots have one within 60 yd), but the
+  policy has not yet learned the multi-step sequence. A curriculum staging offset toward
+  trainers is a future lever (ROADMAP §6).
+- **`neuralbot_client.py` / `NeuralBotWSHandler.cpp` are legacy.** The TCP path is
+  superseded by shared memory and is **disabled by default** (`NeuralBot.WebSocketPort = 0`)
+  after it caused shutdown crashes. Kept only for debug/status.
 - **Ground items are approximated.** The frame `items` section currently lists corpses + chest gameobjects, not individual `Item` world objects (tracked in ROADMAP §1 follow-up).
 - **MLP interim.** The policy still consumes a flattened projection of the structured frame; a transformer (DreamerV3) will consume the records directly (ROADMAP §5).
 

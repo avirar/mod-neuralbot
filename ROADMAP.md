@@ -39,7 +39,7 @@ agent can actually reason over.
 - [x] Python parses into structured records (`np.frombuffer` + dtypes) and projects to a
       fixed tensor for `MlpPolicy` (transformer consumes records directly in §5).
 
-## 2. Native reward — P0 — ✅ DONE (2026-08-17)
+## 2. Native reward — P0 — ✅ DONE (2026-08-17, extended 2026-08-23)
 
 Remove shaping. Keep only the game's own signal.
 
@@ -47,9 +47,10 @@ Remove shaping. Keep only the game's own signal.
 - [x] Gold/money delta.
 - [x] Death penalty.
 - [x] Quest completion (sparse bonus on turn-in).
+- [x] Spell learned (sparse bonus, v0.6.0) — native progression, self-limiting.
 - [x] Remove from total: `killReward`, `enemyProximity`, `targetAcquired`, `questProximity`,
-      `trainerProximity`, `spellLearned`, hand-tuned `timePenalty` (kept as diagnostics).
-- [x] Keep reward components in `infos` for analysis only (not summed into reward).
+      `trainerProximity`, hand-tuned `timePenalty` (kept as diagnostics).
+- [x] Keep reward components in `infos` for analysis (only the native terms are summed).
 
 ## 3. Kill the auto-services — P0
 
@@ -74,11 +75,19 @@ Let the agent act; stop scripting the world for it.
       differentiator no vision/sim approach can match.
 - [ ] Keep PPO as a baseline; compare sample efficiency and final leveling speed.
 
-## 6. Fix spell learning — P1
+## 6. Fix spell learning — P1 — partial (2026-08-23)
 
-- [ ] Root cause: bots find trainers but fail the 5-yard interaction check.
-- [ ] Add friendly-unit navigation/targeting so the bot can close distance.
-- [ ] Verify `PLAYERHOOK_ON_LEARN_SPELL` fires and spells persist across episodes.
+- [x] Root cause: bots were created with **zero** spells — `Player::Create` learns
+      class/race spells as temporary (not saved) and login skips re-learning. Fixed by
+      converting `PLAYERSPELL_TEMPORARY → NEW` before the creation save (v0.6.0); bots
+      now carry their level-1 baseline (~45 spells each).
+- [x] `spellLearned` is a native reward term (v0.6.0) so trainer purchases are credited.
+- [x] Trainer observation is in the frame: trainers appear in `entities[]` with the
+      trainer NPC flag (151/400 bots have one within 60 yd, median 26.6 yd).
+- [ ] Friendly-unit navigation to the trainer + `INTERACT_TARGET` → buy must still be
+      *learned* by the policy (no auto-maintenance).
+- [ ] Verify trainer-bought spells persist across episodes (the `OnPlayerLearnSpell` hook
+      fires; spell state follows the normal save path).
 
 ## 7. Curriculum — P2
 
@@ -103,14 +112,21 @@ Let the agent act; stop scripting the world for it.
 
 ---
 
-## Status snapshot (2026-08-18)
+## Status snapshot (2026-08-23)
 
 - PPO + shared memory + MySQL: **done** (v0.1.0).
-- Native reward (§2): **done** (v0.2.0). Shaping terms are now diagnostic-only.
+- Native reward (§2): **done** (v0.2.0, + spellLearned in v0.6.0). Shaping terms are
+  diagnostic-only.
 - Faithful structured state (§1): **done** (v0.3.0). Packed entity-centric frame over
   shm v2; `MlpPolicy` consumes a flattened projection until DreamerV3.
+- Action space v2 (§4): **done** (v0.4.0) — 41 actions: point-nav, entity-index targeting,
+  spellbook-index casting, `INTERACT_TARGET`.
+- Baseline spells (§6): **done** (v0.6.0) — bots born with level-1 abilities; trainer
+  purchases remain the learned path to higher ranks.
 - Research + design: **done** — `DESIGN.md` specifies the state schema, action rework,
   and shm v2.
-- Remaining rebuild work, in order: §3 (kill auto-services), §4 (action rework),
-  §5 (DreamerV3), §6 (spell learning).
+- Remaining rebuild work, in order: §3 (kill auto-services), §6 (learn trainer navigation),
+  §5 (DreamerV3).
+- Ops hardening (v0.6.0): shutdown crash class fixed (TCP handler disabled), systemd
+  `KillMode=process`, KL guard over-braking fixed (`NEURALBOT_KL=0`, lr 1.5e-4).
 - Earlier: iter 1–4 trained; kills/loot/xp all climbing; spell learning blocked.

@@ -37,15 +37,25 @@ cd /home/luke/GIT/azerothcore-wotlk
 bash acore.sh compiler build          # incremental
 bash acore.sh compiler compile        # fresh (slow)
 
-# Run training (module dir)
+# Run training (module dir) — preferred detached launch
 cd modules/mod-neuralbot
+NEURALBOT_LR=1.5e-4 NEURALBOT_ENT=0.01 NEURALBOT_KL=0 \
+    scripts/launch_trainer.sh wow_neuralbot_model_v12
+
+# Or directly (foreground)
 source .venv/bin/activate
 NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
 ```
 
 - Server: `env/dist/bin/worldserver`; config `env/dist/etc/modules/mod-neuralbot.conf`.
+  Start pattern (stdin EOF = shutdown):
+  `setsid nohup bash -c 'exec tail -f /dev/null | ./worldserver' >> ws_console.out 2>&1 < /dev/null &`
 - Episode stats → MySQL `acore_characters.neuralbot_episodes`.
 - Python venv: `modules/mod-neuralbot/.venv` (Python 3.12, `--system-site-packages`).
+- Trainer log: `ls -t python/logs/train_v12_*.log | head -1` (NOT `tail -1` — picks the stale log).
+- Resume lineage: `cp <newest *_steps.zip> wow_neuralbot_model_v12.zip` then relaunch.
+- `pkill -f "[t]rain_v3.py"` (bracket trick) — never put a literal `train_v3.py` in the
+  same shell that runs pkill.
 
 ## Environment gotchas
 
@@ -66,21 +76,29 @@ NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
   on 2026-08-18 so the terminal shows detail; the full log still goes to
   `env/dist/bin/Server.log` (Debug level). `Errors.log` is empty unless there are errors.
 - **Performance:** the worldserver world thread (sessions + NeuralBot step loop) is the
-  training-throughput gate and is serial by design; `MapUpdate.Threads = 3` in
-  `env/dist/etc/worldserver.conf` offloads map updates (+24% fps, ~14k). Next lever if
-  needed: stagger BuildFrame's 60-yd grid scans across steps.
+  training-throughput gate and is serial by design; `MapUpdate.Threads = 5` in
+  `env/dist/etc/worldserver.conf` offloads map updates (~17–21k fps). Next lever if
+  needed: stagger BuildFrame's 60-yd grid scans across steps, or a second worldserver
+  shard (deferred).
 - **No submodules.** `deps/*` and `modules/*` are plain tracked dirs / separate repos.
 - **DB:** `acore:abc@127.0.0.1:3306`, databases `acore_auth` / `acore_characters` /
   `acore_world`. MySQL runs on the host (port 3306), not the `ac-database` docker
   service.
 - **Git creds:** HTTPS via `~/.git-credentials` (user `avirar`). `gh` CLI token is stale;
   use git, not gh.
+- **Watchdog KillMode:** `neuralbot-watchdog.service` must keep `KillMode=process` — the
+  default `control-group` made systemd SIGTERM the worldserver/trainer every time the
+  watchdog script exited (clean `Halting process…` ~72 s after each boot). Unit tracked
+  at `scripts/neuralbot-watchdog.service`; install to `~/.config/systemd/user/`.
 - **Storage:** overflow (old logs, generated weights/checkpoints) goes to `~/NAS/temp/neuralbot`.
   Automated daily by `scripts/archive_to_nas.sh` (systemd user timer `neuralbot-archive.timer`,
   04:23): episodes rows >2 d old, checkpoints beyond newest 5, old logs, `Server.log` >500 MB
   (~1 GB/hour while training). Run it manually after big housekeeping.
+- **DBC data:** `SkillLineAbility.dbc` (spell → skill-line auto-learn, `AcquireMethod`,
+  `RaceMask`/`ClassMask`, `MinSkillLineRank`) lives in `env/dist/bin/dbc/`. Queryable via
+  `~/GIT/acore-data` (MCP server; set `ACORE_DBC_PATH` and `ACORE_FORMAT_FILE`).
 
-## Current state (2026-08-18, v0.4.0)
+## Current state (2026-08-23, v0.6.0)
 
 Done:
 - PPO + shm IPC + MySQL logging (v0.1.0); native reward (v0.2.0); structured frames
@@ -92,17 +110,38 @@ Done:
   CAST_SPELL_0..7 (frame spells[] order, passives filtered), INTERACT_TARGET
   (gated 5.5yd context action: quest/trainer/vendor/chest), nearest-enemy/friendly/corpse
   targeting, attack start/stop, COMPLETE_QUEST, LOOT. Episode table has act_0..act_40.
+- v0.5.0: pipelined shm protocol (Python harvester thread + depth-3 queue + C++
+  backpressure `ObservationsPending`); `MapUpdate.Threads` 3 → 5.
+- v0.6.0: **baseline spells** (bots born with ~45 level-1 abilities; `Player::Create`
+  learned them as temporary — factory converts `PLAYERSPELL_TEMPORARY→NEW` before save);
+  **`spellLearned` is a native reward term**; trainer purchases stay the learned path to
+  higher ranks (no auto-maintenance).
+- Ops hardening (v0.6.0): shutdown crash class fixed (dead TCP handler disabled,
+  `NeuralBot.WebSocketPort=0`); systemd `KillMode=process` (was control-group, which
+  SIGTERM'd worldserver/trainer every watchdog pass); KL-guard over-braking fixed.
 - Ops: daily NAS archiver (`scripts/archive_to_nas.sh`, timer 04:23) + training watchdog
-  (`scripts/watchdog.sh`, `neuralbot-watchdog.service`; `/tmp/neuralbot_maintenance` flag
-  stands it down during manual work).
+  (`scripts/watchdog.sh`, `neuralbot-watchdog.service`; `.maintenance` flag in the module
+  dir stands it down during manual work).
+
+### Active hyperparameters (v12 lineage)
+- `NEURALBOT_LR=1.5e-4`, `NEURALBOT_ENT=0.01`, `NEURALBOT_KL=0` (guard off — it was
+  pinning LR at its 1e-5 floor; SBX 0.25.0 *does* serialize `target_kl`/`adaptive_lr`).
+- `NEURALBOT_TIMESTEPS=1000000000`, `NEURALBOT_REWARD_CLIP=0.3`.
+- gamma 0.999, gae_lambda 0.98, n_steps 1024.
+- Watchdog passes ENT/KL and defaults LR to 1.5e-4 in `scripts/watchdog.sh`.
 
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills
   0.01/ep.
 - v5 = v0.4.0 action space, resumed across rebuilds from `*_steps.zip` checkpoints.
+- v8–v12 = variance-reduction stack (lr sweep, KL guard, reward clip). Kill-rate oscillation
+  (~0.44↔0.20, ~1h period) traced to the KL guard never actually engaging (SBX serialization
+  bug) — now fixed. v12 runs lr 1.5e-4, guard off; level distribution climbs through the
+  band (lvl7 cohort forming).
 
 Next (ROADMAP): §3 kill remaining auto-services (AutoQuest, cast auto-target fallback,
-COMPLETE_QUEST/LOOT context scans), §5 DreamerV3, curriculum.
+COMPLETE_QUEST/LOOT context scans), §6 learn trainer navigation, §5 DreamerV3,
+curriculum.
 
 ## Conventions
 

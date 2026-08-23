@@ -113,12 +113,17 @@ Scalar = weighted sum of the game's own signals. No shaping.
 | `level` | `GetLevel()` delta | sparse bonus on level-up |
 | `death` | `OnPlayerJustDied` | sparse penalty |
 | `quest_complete` | `QUEST_STATUS_COMPLETE` transition | sparse bonus on turn-in |
+| `spell_learned` | `OnPlayerLearnSpell` | sparse bonus on learning a spell (v0.6.0) |
 
-Reward components are logged to `neuralbot_episodes` for analysis **only** — not summed.
+Reward components are logged to `neuralbot_episodes` for analysis; the shaping terms
+(`kill`, `enemy_proximity`, `target_acquired`, `quest_proximity`, `trainer_proximity`,
+`quest_progress`, `quest_accepted`, `damage_taken`) are **diagnostic-only** — not summed.
 
-Rationale: XP *is* the game's reward for leveling; money and quest completion are its other
-two currencies. Everything else (kills, exploration, looting) is instrumental and must be
-learned through these signals, not hand-shaped.
+Rationale: XP *is* the game's reward for leveling; money and quest completion are its
+other two currencies. Learning a spell is native progression too — self-limiting (a known
+rank can't be re-bought, money gates it), so it can't be gamed, and it shortens the
+walk→buy→cast→kill credit chain. Everything else (kills, exploration, looting) is
+instrumental and must be learned through these signals, not hand-shaped.
 
 ---
 
