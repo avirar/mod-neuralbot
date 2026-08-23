@@ -1,5 +1,5 @@
 diff --git a/configs/configs.yaml b/configs/configs.yaml
-index 7ea8e7e..a5a80cc 100644
+index 7ea8e7e..5fa3b6c 100644
 --- a/configs/configs.yaml
 +++ b/configs/configs.yaml
 @@ -1,5 +1,5 @@
@@ -21,6 +21,12 @@ index 7ea8e7e..a5a80cc 100644
  
  trainer:
    steps: ${env.steps}
+@@ -36,3 +36,5 @@ trainer:
+   params_hist_log: False
+   update_log_every: 5e3
+   action_repeat: ${env.action_repeat}
++  # Crash-safety checkpoint interval (env steps). 0 disables periodic saving.
++  checkpoint_every: 2e5
 diff --git a/configs/env/wow.yaml b/configs/env/wow.yaml
 new file mode 100644
 index 0000000..0afb733
@@ -68,3 +74,39 @@ index dfdfd2c..00d537f 100644
      if suite == "isaaclab":
          return _make_isaaclab_envs(config)
  
+diff --git a/trainer.py b/trainer.py
+index 84434f9..34e9af9 100644
+--- a/trainer.py
++++ b/trainer.py
+@@ -7,6 +7,7 @@ class OnlineTrainer:
+     def __init__(self, config, replay_buffer, logger, logdir, train_envs, eval_envs):
+         self.replay_buffer = replay_buffer
+         self.logger = logger
++        self.logdir = logdir
+         self.train_envs = train_envs
+         self.eval_envs = eval_envs
+         self.steps = int(config.steps)
+@@ -23,6 +24,10 @@ class OnlineTrainer:
+         self._should_log = tools.Every(config.update_log_every)
+         self._should_eval = tools.Every(self.eval_every)
+         self._action_repeat = config.action_repeat
++        # Periodic crash-safety checkpoint (agent + optims), so an overnight crash
++        # doesn't lose the whole run. Set trainer.checkpoint_every to 0 to disable.
++        self.checkpoint_every = int(getattr(config, "checkpoint_every", 200000))
++        self._should_checkpoint = tools.Every(self.checkpoint_every)
+ 
+     def eval(self, agent, train_step):
+         """Run evaluation episodes.
+@@ -189,3 +194,12 @@ class OnlineTrainer:
+                         for name, param in agent._named_params.items():
+                             self.logger.histogram(name, tools.to_np(param))
+                     self.logger.write(step, fps=True)
++                    # Crash-safety checkpoint (agent + optim state), every checkpoint_every steps.
++                    if self._should_checkpoint(step):
++                        items_to_save = {
++                            "agent_state_dict": agent.state_dict(),
++                            "optims_state_dict": tools.recursively_collect_optim_state_dict(agent),
++                            "step": step,
++                        }
++                        torch.save(items_to_save, self.logdir / "latest.pt")
++                        print(f"[checkpoint] saved latest.pt at step {step}", flush=True)
