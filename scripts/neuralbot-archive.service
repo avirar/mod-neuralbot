@@ -1,0 +1,6 @@
+[Unit]
+Description=NeuralBot: archive large artifacts to NAS
+
+[Service]
+Type=oneshot
+ExecStart=/home/luke/GIT/azerothcore-wotlk/modules/mod-neuralbot/scripts/archive_to_nas.sh

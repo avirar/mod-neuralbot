@@ -1,0 +1,9 @@
+[Unit]
+Description=NeuralBot NAS archive (every 2h — Server.log grows ~3.6GB/h at Debug level)
+
+[Timer]
+OnCalendar=*-*-* 00/2:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
