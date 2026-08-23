@@ -67,71 +67,135 @@ OBS_FLAT_SIZE = (
 )
 
 
+# Per-field normalization scales (v0.6.x). Raw magnitudes are wildly heterogeneous
+# (health ~hundreds, money ~thousands of copper, positions ~thousands, spell/entry IDs
+# ~5 digits, npcFlags up to 2^31); a vanilla MLP cannot fit such mixed scales — the
+# large-magnitude fields swamp the small ones. Ratios are used where a natural 0..1
+# exists (hp/max, mana/max, xp/nextLevelXp); log1p for long-tailed magnitudes (money,
+# IDs, cooldowns, costs, flags); fixed divisors for bounded quantities (level, position,
+# class/race, distance).
+_LEVEL_CAP    = 80.0
+_POS_CAP      = 10000.0
+_ANGLE_CAP    = 6.283185307179586   # 2π
+_MAPID_CAP    = 10000.0
+_CLASS_CAP    = 11.0
+_COMBO_CAP    = 5.0
+_DIST_CAP     = 60.0
+_REACTION_CAP = 2.0
+_TYPE_CAP     = 3.0
+_HEALTH_CAP   = 100000.0
+_MONEY_CAP    = 1000000.0   # copper = 100 gold
+_ID_CAP       = 1000000.0
+_NPCFLAG_CAP  = float(2**31)
+_CD_CAP       = 600000.0    # ms (10 min)
+_COST_CAP     = 10000.0
+_RANGE_CAP    = 100.0
+_CAST_CAP     = 10000.0
+_STATUS_CAP   = 5.0
+_OBJ_CAP      = 60.0
+_QUALITY_CAP  = 7.0
+
+
+def _log1p_norm(x, cap):
+    """log1p scaling: [0, cap] -> [0, 1] on a log scale, robust to 0."""
+    return np.log1p(np.maximum(x, 0.0)) / np.log1p(cap)
+
+
+def _frac(num, den):
+    """num / max(den, 1) -> ~[0, 1] fraction."""
+    return num / np.maximum(den, 1.0)
+
+
 def flatten_frames(frames: np.ndarray) -> np.ndarray:
-    """Project structured frames into a fixed-size float32 tensor (num_bots, OBS_FLAT_SIZE)."""
+    """Project structured frames into a fixed-size float32 tensor (num_bots, OBS_FLAT_SIZE).
+
+    Each field is normalized into a sane ~[0,1] (or ~[-1,1]) range — see the scale table
+    above. Same field selection and OBS_FLAT_SIZE as before (a transformer / DreamerV3
+    policy will consume the structured records directly and skip this projection).
+    """
     num_bots = frames.shape[0]
 
     s = frames["self"]
     self_flat = np.stack([
-        s["level"].astype(np.float32),
-        s["health"], s["maxHealth"],
-        s["mana"], s["maxMana"],
-        s["resource"], s["maxResource"],
-        s["xp"].astype(np.float32), s["nextLevelXp"].astype(np.float32),
-        s["money"].astype(np.float32),
-        s["posX"], s["posY"], s["posZ"], s["orientation"],
-        s["mapId"].astype(np.float32), s["zoneId"].astype(np.float32), s["areaId"].astype(np.float32),
-        s["alive"].astype(np.float32), s["inCombat"].astype(np.float32),
-        s["moving"].astype(np.float32), s["casting"].astype(np.float32),
-        s["inWater"].astype(np.float32), s["mounted"].astype(np.float32),
-        s["classId"].astype(np.float32), s["race"].astype(np.float32),
-        s["comboPoints"].astype(np.float32),
+        s["level"] / _LEVEL_CAP,
+        _frac(s["health"], s["maxHealth"]),
+        _log1p_norm(s["maxHealth"], _HEALTH_CAP),
+        _frac(s["mana"], s["maxMana"]),
+        _log1p_norm(s["maxMana"], _HEALTH_CAP),
+        _frac(s["resource"], s["maxResource"]),
+        _log1p_norm(s["maxResource"], _HEALTH_CAP),
+        _frac(s["xp"], s["nextLevelXp"]),
+        _log1p_norm(s["nextLevelXp"], _HEALTH_CAP),
+        _log1p_norm(s["money"], _MONEY_CAP),
+        s["posX"] / _POS_CAP, s["posY"] / _POS_CAP, s["posZ"] / _POS_CAP,
+        s["orientation"] / _ANGLE_CAP,
+        s["mapId"] / _MAPID_CAP, s["zoneId"] / _MAPID_CAP, s["areaId"] / _MAPID_CAP,
+        s["alive"], s["inCombat"], s["moving"], s["casting"],
+        s["inWater"], s["mounted"],
+        s["classId"] / _CLASS_CAP, s["race"] / _CLASS_CAP,
+        s["comboPoints"] / _COMBO_CAP,
     ], axis=-1)
 
     t = frames["target"]
     target_flat = np.stack([
-        t["entry"].astype(np.float32), t["type"].astype(np.float32),
-        t["health"], t["maxHealth"], t["level"].astype(np.float32),
-        t["dx"], t["dy"], t["dz"], t["distance"],
-        t["reaction"].astype(np.float32), t["alive"].astype(np.float32),
-        t["inCombat"].astype(np.float32), t["casting"].astype(np.float32),
-        t["npcFlags"].astype(np.float32),
+        _log1p_norm(t["entry"], _ID_CAP),
+        t["type"] / _TYPE_CAP,
+        _frac(t["health"], t["maxHealth"]),
+        _log1p_norm(t["maxHealth"], _HEALTH_CAP),
+        t["level"] / _LEVEL_CAP,
+        t["dx"] / _DIST_CAP, t["dy"] / _DIST_CAP, t["dz"] / _DIST_CAP,
+        t["distance"] / _DIST_CAP,
+        t["reaction"] / _REACTION_CAP,
+        t["alive"], t["inCombat"], t["casting"],
+        _log1p_norm(t["npcFlags"], _NPCFLAG_CAP),
     ], axis=-1)
 
     c = frames["counts"]
     counts_flat = np.stack([
-        c["nSpells"].astype(np.float32), c["nQuests"].astype(np.float32),
-        c["nEntities"].astype(np.float32), c["nItems"].astype(np.float32),
+        c["nSpells"] / NB_MAX_SPELLS, c["nQuests"] / NB_MAX_QUESTS,
+        c["nEntities"] / NB_MAX_ENTITIES, c["nItems"] / NB_MAX_ITEMS,
     ], axis=-1)
 
     e = frames["entities"]
     entity_flat = np.stack([
-        e["entry"].astype(np.float32), e["type"].astype(np.float32),
-        e["level"].astype(np.float32), e["health"], e["maxHealth"],
-        e["distance"], e["reaction"].astype(np.float32), e["alive"].astype(np.float32),
+        _log1p_norm(e["entry"], _ID_CAP),
+        e["type"] / _TYPE_CAP,
+        e["level"] / _LEVEL_CAP,
+        _frac(e["health"], e["maxHealth"]),
+        _log1p_norm(e["maxHealth"], _HEALTH_CAP),
+        e["distance"] / _DIST_CAP,
+        e["reaction"] / _REACTION_CAP,
+        e["alive"],
     ], axis=-1).reshape(num_bots, -1)
 
     sp = frames["spells"]
     spell_flat = np.stack([
-        sp["spellId"].astype(np.float32), sp["cooldownMs"].astype(np.float32),
-        sp["cost"].astype(np.float32), sp["range"], sp["minRange"],
-        sp["castTimeMs"], sp["ready"].astype(np.float32),
+        _log1p_norm(sp["spellId"], _ID_CAP),
+        _log1p_norm(sp["cooldownMs"], _CD_CAP),
+        _log1p_norm(sp["cost"], _COST_CAP),
+        sp["range"] / _RANGE_CAP, sp["minRange"] / _RANGE_CAP,
+        _log1p_norm(sp["castTimeMs"], _CAST_CAP),
+        sp["ready"],
     ], axis=-1).reshape(num_bots, -1)
 
     q = frames["quests"]
     quest_flat = np.stack([
-        q["questId"].astype(np.float32), q["status"].astype(np.float32),
-        q["obj"][..., 0].astype(np.float32), q["obj"][..., 1].astype(np.float32),
-        q["obj"][..., 2].astype(np.float32), q["obj"][..., 3].astype(np.float32),
+        _log1p_norm(q["questId"], _ID_CAP),
+        q["status"] / _STATUS_CAP,
+        q["obj"][..., 0] / _OBJ_CAP, q["obj"][..., 1] / _OBJ_CAP,
+        q["obj"][..., 2] / _OBJ_CAP, q["obj"][..., 3] / _OBJ_CAP,
     ], axis=-1).reshape(num_bots, -1)
 
     it = frames["items"]
     item_flat = np.stack([
-        it["entry"].astype(np.float32), it["quality"].astype(np.float32), it["distance"],
+        _log1p_norm(it["entry"], _ID_CAP),
+        it["quality"] / _QUALITY_CAP,
+        it["distance"] / _DIST_CAP,
     ], axis=-1).reshape(num_bots, -1)
 
     obs = np.concatenate([self_flat, target_flat, counts_flat,
                           entity_flat, spell_flat, quest_flat, item_flat], axis=-1)
+    obs = obs.astype(np.float32)
     assert obs.shape == (num_bots, OBS_FLAT_SIZE)
     return obs
 
@@ -145,9 +209,10 @@ QUEUE_MAXLEN = 3
 class SharedMemoryVecEnv(VecEnv):
     """VecEnv-compatible wrapper using shared memory for batch stepping."""
 
-    def __init__(self, timeout: float = 30.0, reward_clip: float = 0.3):
+    def __init__(self, timeout: float = 30.0, reward_clip: float = 0.3, reward_mode: str = "symlog"):
         self.timeout = timeout
         self.reward_clip = reward_clip
+        self.reward_mode = reward_mode
         self._closed = False
 
         self._connect()
@@ -157,7 +222,7 @@ class SharedMemoryVecEnv(VecEnv):
 
         import gymnasium as gym
         observation_space = gym.spaces.Box(
-            low=-1.0, high=65535.0, shape=(OBS_FLAT_SIZE,), dtype=np.float32
+            low=-10.0, high=10.0, shape=(OBS_FLAT_SIZE,), dtype=np.float32
         )
         action_space = gym.spaces.Discrete(ACTION_COUNT)
         super().__init__(self.num_envs, observation_space, action_space)
@@ -271,10 +336,17 @@ class SharedMemoryVecEnv(VecEnv):
     def step_wait(self):
         """Return the next harvested batch (obs may be 1 tick stale — pipelined)."""
         obs, rewards, dones, components = self._pop_result()
-        # Spike cap (variance reduction): level-up bonuses are ~25x the mean episode
-        # reward; uncapped they dominate advantages and destabilize the value function.
-        if self.reward_clip > 0:
-            np.clip(rewards, -1.0, self.reward_clip, out=rewards)
+        # Reward rescale (v0.6.x): hard clipping to [-1, 0.3] collapsed every sparse
+        # positive signal (+20 quest, +10 spell, +0.01 xp) onto the same +0.3, destroying
+        # the magnitude gradient the value function needs. symlog is ~identity for small
+        # |r| and log for large |r|, so it bounds the signal while preserving the
+        # ordering/magnitude between "small progress" and "big progress".
+        if self.reward_mode == "symlog":
+            np.multiply(np.sign(rewards), np.log1p(np.abs(rewards)), out=rewards)
+        elif self.reward_mode == "clip":
+            if self.reward_clip > 0:
+                np.clip(rewards, -1.0, self.reward_clip, out=rewards)
+        # else "none": raw native magnitudes
         # Vectorized fast path: per-env info dicts are built ONLY for done envs (rare,
         # ~2-4%). The full components array is exposed as `last_components` for the
         # stats callback to accumulate with numpy — the old path built 400 dicts ×

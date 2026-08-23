@@ -157,6 +157,7 @@ def main():
     ent_coef = float(os.environ.get("NEURALBOT_ENT", "0.01"))
     n_steps_env = int(os.environ.get("NEURALBOT_NSTEPS", "1024"))
     reward_clip = float(os.environ.get("NEURALBOT_REWARD_CLIP", "0.3"))
+    reward_mode = os.environ.get("NEURALBOT_REWARD_MODE", "symlog")
     target_kl = float(os.environ.get("NEURALBOT_KL", "0.008"))
     if target_kl == 0:
         target_kl = None  # 0 disables the KL guard entirely
@@ -168,7 +169,7 @@ def main():
     save_path = f"{model_path}_iter2" if has_previous else model_path
 
     print(f"Connecting to shared memory at {os.environ.get('SHM_PATH', '/dev/shm/neuralbot_shm')}...")
-    env = SharedMemoryVecEnv(timeout=60.0)
+    env = SharedMemoryVecEnv(timeout=60.0, reward_clip=reward_clip, reward_mode=reward_mode)
 
     num_bots = env.num_envs
     buffer_size = 512 * num_bots
@@ -177,6 +178,7 @@ def main():
     print(f"SharedMemoryVecEnv ready: {num_bots} bots, {OBS_FLAT_SIZE} obs dims, {FRAME_BYTES} bytes/frame")
     print(f"Buffer: {buffer_size} samples, {buffer_size // batch_size} minibatches")
     print(f"Training PPO for {timesteps} timesteps using {num_bots} parallel envs...")
+    print(f"Reward mode={reward_mode} clip={reward_clip}", flush=True)
     print(f"Episode stats → MySQL {DB_CONFIG['host']}/{DB_CONFIG['database']}.neuralbot_episodes", flush=True)
 
     checkpoint_path = os.path.dirname(save_path) or "."
