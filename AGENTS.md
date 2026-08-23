@@ -218,6 +218,13 @@ accepted plan and its results:
 - **Initial metrics** (first ~10 min): `train/dyn_entropy` 77→74, `rep_entropy` 76→72
   (both must fall below log K for structure), `episode/score` ~0 (random policy),
   `episode/length` ~280 (bots dying), `fps/fps` ~500 (env throttled by train_ratio 64).
+- **Overnight trajectory** (R2-Dreamer, 20M-step budget): `dyn_entropy` 77→~45 over ~7h
+  (RSSM learning structure — the signal PPO never produced), `action_entropy` 3.7→~2
+  (actor concentrating), and the **first non-zero returns** appeared: `episode/score`
+  0.5 → 8.5 → 16.8 (bots surviving ~2800-3000 steps and earning kills/XP). But scores
+  are still **intermittent** (~10% of episodes non-zero) — the actor hasn't yet
+  consistently exploited the learned dynamics. Verdict pending: let it finish the
+  budget (or longer); next levers are `train_ratio`/`horizon`/model size.
 - **NE-Dreamer / R2-Dreamer (PyTorch)** chosen over danijar/dreamerv3 (JAX, idiosyncratic
   `embodied` framework). One codebase covers `ne_dreamer`/`r2dreamer`/`dreamer` via
   `model.rep_loss`; NE-Dreamer's temporal transformer targets long-horizon
