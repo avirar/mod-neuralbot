@@ -817,7 +817,9 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     out.lootReward = (curMoney - _prevMoney) / 10000.0f;
     _prevMoney = curMoney;
 
-    // ── Shaping terms (diagnostic-only, NOT summed into reward) ────────────
+    // ── Additional tracked terms ──────────────────────────────────────────
+    // Quest completion and spell-learned feed the native total above; the rest are
+    // computed for logging/diagnostics only (no shaping, per DESIGN.md).
 
     float killReward = _killCount * 5.0f;
     out.killReward = killReward;
@@ -966,10 +968,13 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
 
     out.timePenalty = 0.0f;
 
-    // Native total: XP + gold + level milestone + quest completion − death.
-    // Quest-turn-in XP also flows through xpDelta, but the discrete completion
-    // event gets its own sparse signal for cleaner long-sequence credit.
-    return out.xpDelta + out.lootReward + levelReward + out.questCompleted - out.deathPenalty;
+    // Native total: XP + gold + level milestone + quest completion + spell learned − death.
+    // Quest-turn-in XP also flows through xpDelta, but the discrete completion event
+    // gets its own sparse signal for cleaner long-sequence credit. Learning a spell is
+    // native character progression (same category as leveling): it is self-limiting
+    // (CanTeachSpell blocks re-buying a known rank, and money gates it), so it can't be
+    // gamed, and it shortens the otherwise-very-long walk→buy→cast→kill credit chain.
+    return out.xpDelta + out.lootReward + levelReward + out.questCompleted + out.spellLearned - out.deathPenalty;
 }
 
 void NeuralBotInstance::ResetRewardTracking()

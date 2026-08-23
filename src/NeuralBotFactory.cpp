@@ -15,6 +15,76 @@
 
 static std::vector<CreatedCharacterInfo> s_createdCharacters;
 
+// Baseline class abilities a real level-1 character is born with (rank-1 only).
+// Higher ranks and new abilities remain trainer-bought — the RL policy must learn to
+// visit trainers (see NeuralBotInstance's trainer interaction). Mirrors the level-1
+// subset of mod-playerbots' PlayerbotFactory::InitClassSpells().
+static void LearnBaselineSpells(Player* player)
+{
+    // Player::Create learns class/race spells via skill-line ability auto-learn with
+    // temporary=true (the player is not yet in world), so _SaveSpells skips them. At
+    // login, _LoadSkills already has the skills saved from creation, so LearnDefaultSkills
+    // skips re-learning the abilities — leaving the bot with zero spells. Convert the
+    // temporary spells to NEW so the creation SaveToDB persists them.
+    uint32 persisted = 0;
+    for (auto& [spellId, spellState] : player->GetSpellMap())
+    {
+        if (spellState->State == PLAYERSPELL_TEMPORARY)
+        {
+            spellState->State = PLAYERSPELL_NEW;
+            ++persisted;
+        }
+    }
+
+    // A few rank-1 abilities are not in the skill-line auto-learn set (e.g. warlock's
+    // Summon Imp is normally quest-granted); learn them explicitly as persistent.
+    switch (player->getClass())
+    {
+        case CLASS_WARRIOR:
+            player->learnSpell(78);    // Heroic Strike
+            player->learnSpell(2457);  // Battle Stance
+            break;
+        case CLASS_PALADIN:
+            player->learnSpell(21084); // Seal of Righteousness
+            player->learnSpell(635);   // Holy Light
+            break;
+        case CLASS_HUNTER:
+            player->learnSpell(2973);  // Raptor Strike
+            player->learnSpell(75);    // Auto Shot
+            break;
+        case CLASS_ROGUE:
+            player->learnSpell(1752);  // Sinister Strike
+            player->learnSpell(2098);  // Eviscerate
+            break;
+        case CLASS_PRIEST:
+            player->learnSpell(585);   // Smite
+            player->learnSpell(2050);  // Lesser Heal
+            break;
+        case CLASS_SHAMAN:
+            player->learnSpell(403);   // Lightning Bolt
+            player->learnSpell(331);   // Healing Wave
+            break;
+        case CLASS_MAGE:
+            player->learnSpell(133);   // Fireball
+            player->learnSpell(168);   // Frost Armor
+            break;
+        case CLASS_WARLOCK:
+            player->learnSpell(687);   // Demon Skin
+            player->learnSpell(686);   // Shadow Bolt
+            player->learnSpell(688);   // Summon Imp
+            break;
+        case CLASS_DRUID:
+            player->learnSpell(5176);  // Wrath
+            player->learnSpell(5185);  // Healing Touch
+            break;
+        default:
+            break;
+    }
+
+    LOG_INFO("module.neuralbot", "Baseline spells for '{}' (class {}): {} temporary -> new",
+        player->GetName(), uint32(player->getClass()), persisted);
+}
+
 // All valid WoW race/class starter combos (letters-only names)
 static const std::pair<uint8, uint8> STARTER_COMBOS[] = {
     // Alliance (5 races)
@@ -173,6 +243,11 @@ bool NeuralBotFactory::CreateCharacters()
             delete session;
             return false;
         }
+
+        // Real level-1 characters are born with rank-1 abilities; learn them here
+        // (once, at creation) so bots aren't unrealistically gimped. Everything else
+        // is trainer-bought and must be learned by the policy.
+        LearnBaselineSpells(player);
 
         player->setCinematic(2);
         player->SetAtLoginFlag(AT_LOGIN_NONE);
