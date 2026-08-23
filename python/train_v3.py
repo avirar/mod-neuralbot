@@ -224,7 +224,7 @@ def main():
 
     num_bots = env.num_envs
     batch_size = int(os.environ.get("NEURALBOT_BATCH_SIZE", "4096"))
-    n_epochs = int(os.environ.get("NEURALBOT_EPOCHS", "10"))
+    n_epochs = int(os.environ.get("NEURALBOT_EPOCHS", "5"))
     buffer_size = n_steps_env * num_bots
 
     print(f"SharedMemoryVecEnv ready: {num_bots} bots, {OBS_FLAT_SIZE} obs dims, {FRAME_BYTES} bytes/frame")
