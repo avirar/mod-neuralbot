@@ -191,12 +191,14 @@ accepted plan and its results:
   `symlog` reward. **Result: broke the stall** — kills went 0.20 → ~0.55 (3×), but then
   **plateaued** at 0.52–0.74 (oscillating, reward halved 0.055→0.026, entropy still
   ~96% of max). Vanilla PPO + sparse reward hit a ceiling even with sane inputs/reward.
-- **Tier 1 (in progress) — BC warm-start**: recorded ~106k playerbot demos, analyzed
-  which actions carry XP (combat/quest) vs meta-noise, wrote `bc_mapping.py` (name+frame
-  → 41-action) + `bc_train.py` (supervised pre-train of the SBX action head; loss
-  3.57→1.18, 36k samples). Fine-tune running as the `wow_neuralbot_model_v14_bc` lineage
-  (PPO from the BC init). Early sign: policy acts like the expert (MOVE 290/ep, ATTACK
-  238/ep, CAST 118/ep, NOOP 14/ep vs v13's ~40 NOOP).
+- **Tier 1 (done — plateaued, ~23:00 2026-08-23) — BC warm-start**: recorded ~106k
+  playerbot demos, analyzed which actions carry XP (combat/quest) vs meta-noise, wrote
+  `bc_mapping.py` (name+frame → 41-action) + `bc_train.py` (supervised pre-train of the
+  SBX action head; loss 3.57→1.18, 36k samples). The `wow_neuralbot_model_v14_bc`
+  fine-tune **acted like the expert** (MOVE 290/ep, ATTACK 238/ep, CAST 118/ep, NOOP
+  14/ep) and climbed kills 0.37→0.54 — but then **decayed exactly like v13** (kills
+  0.54→0.40, reward 0.046→0.020, entropy back to ~96% of max). BC warm-start alone does
+  **not** break the sparse-reward plateau → world-model spike launched (~23:10).
 - **Spell-ordering fix**: `PlayerSpellMap` is `std::unordered_map`, so `BuildFrame`'s
   spells[] order (and thus CAST_SPELL_0..7 semantics) was **arbitrary** — unlearnable.
   Now sorted by spellId (deterministic; e.g. Smite lands in slot 2 for priests).
