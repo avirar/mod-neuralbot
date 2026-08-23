@@ -193,6 +193,7 @@ def main():
     if has_previous:
         try:
             model = PPO.load(model_path, env=env, custom_objects={"n_steps": n_steps_env})
+            model.verbose = 1  # loaded models may have been saved with verbose=0 (BC warm-start)
             model.learning_rate = learning_rate  # allow NEURALBOT_LR to retune resumed runs
             model.ent_coef = ent_coef          # and NEURALBOT_ENT (0.005 over-commits and oscillates)
             # Rebuild the lr schedule from the (possibly retuned) learning rate — the

@@ -103,6 +103,7 @@ def main():
         learning_rate=1e-4, n_epochs=10, gamma=0.999, gae_lambda=0.98,
         clip_range=0.2, ent_coef=0.01, target_kl=None, verbose=0,
         policy_kwargs=dict(net_arch=net_arch),
+        verbose=1,  # save with verbose=1 so PPO.load() logs metrics after warm-start
     )
     from sbx import PPO
     model = PPO(**model_kwargs)
