@@ -13,6 +13,18 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
   supervised cross-entropy (36k samples, loss 3.57 → 1.18) and saves a model for
   `train_v3.py` to `PPO.load()` and fine-tune. The fine-tune lineage is
   `wow_neuralbot_model_v14_bc`.
+- **Performance instrumentation.** C++ logs `module.neuralbot.perf` every
+  `NeuralBot.PerfLogInterval` (250) SHM batches — batch `cycle`/`step`/`wait` ms plus
+  per-bot `action`/`reward`/`build` stage timing. Python logs a `[perf]` line per PPO
+  iteration — rollout vs `train()` time, `train_frac`, `rollout_fps`, reader harvest
+  latency. (C++ lines go to `Server.log` under `Logger.module`, not the console.)
+- `NEURALBOT_BATCH_SIZE` (default 4096) and `NEURALBOT_EPOCHS` (default 5) env knobs
+  to tune the PPO update cost.
+
+### Changed
+- **PPO update cost cut ~4×** (batch 1024→4096, epochs 10→5): `train_frac` 52%→19%,
+  overall fps 12.8k→16k, rollout_fps ~19.6k. The update is JAX-dispatch-bound (500 tiny
+  minibatch calls), not compute-bound — see the 2026-08-23 perf note in `AGENTS.md`.
 
 ### Fixed
 - **Deterministic spell ordering.** `PlayerSpellMap` is `std::unordered_map`, so the

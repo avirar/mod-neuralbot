@@ -113,11 +113,21 @@ pass the prefix explicitly (e.g. `start_training.sh wow_neuralbot_model_v14_bc`)
   `env/dist/etc/worldserver.conf` (`Appender.Console=1,2,0`). Bumped to `1,4,0` (Info)
   on 2026-08-18 so the terminal shows detail; the full log still goes to
   `env/dist/bin/Server.log` (Debug level). `Errors.log` is empty unless there are errors.
-- **Performance:** the worldserver world thread (sessions + NeuralBot step loop) is the
-  training-throughput gate and is serial by design; `MapUpdate.Threads = 5` in
-  `env/dist/etc/worldserver.conf` offloads map updates (~17–21k fps). Next lever if
-  needed: stagger BuildFrame's 60-yd grid scans across steps, or a second worldserver
-  shard (deferred).
+- **Performance (measured 2026-08-23):** the C++ SHM step is **not** the gate — it is
+  ~6 ms/batch (30% of the ~20 ms cycle; per-bot action 4 µs, reward 1 µs, build 9 µs).
+  The rest is Python: ~14 ms/batch of policy-forward (JAX dispatch) + reader harvest
+  (~2.5 ms) + handshake. The bigger cost was the **PPO update** — with SBX defaults
+  (10 epochs × 400 minibatches = 4000 JAX calls) it took 15–25 s per rollout = 40–52%
+  of wall-clock, during which the worldserver idles. `NEURALBOT_BATCH_SIZE=4096` +
+  `NEURALBOT_EPOCHS=5` cut it to ~5 s (`train_frac` ~19%), raising fps 12.8k→16k and
+  rollout_fps to ~19.6k. The **5090 is ~99% idle**: the update kernels finish in
+  <100 ms — the bottleneck is real-world data collection (the world thread steps
+  ~18–20k bot-steps/s), so vanilla PPO can never saturate the GPU. The **world model**
+  (imagination on GPU) is the path that actually uses it. Instrumentation:
+  `module.neuralbot.perf` in `Server.log` (every 250 batches) + `[perf]` lines in the
+  trainer log. Remaining levers (documented, not yet done): async PPO (overlap rollout
+  + update, ~+40%), or a second isolated worldserver shard (separate auth/char DB +
+  configurable SHM name + separate port) to run Dreamer alongside PPO.
 - **No submodules.** `deps/*` and `modules/*` are plain tracked dirs / separate repos.
 - **DB:** `acore:abc@127.0.0.1:3306`, databases `acore_auth` / `acore_characters` /
   `acore_world`. MySQL runs on the host (port 3306), not the `ac-database` docker
@@ -167,6 +177,8 @@ Done:
 - `NEURALBOT_TIMESTEPS=1000000000`, `NEURALBOT_REWARD_MODE=symlog` (default; the old
   `[-1,0.3]` clip collapsed +20/+10/+0.01 onto one value — symlog preserves the gradient).
 - gamma 0.999, gae_lambda 0.98, n_steps 1024.
+- `NEURALBOT_BATCH_SIZE=4096`, `NEURALBOT_EPOCHS=5` (update cost cut ~4×; the JAX
+  update is dispatch-bound, not compute-bound — fewer, larger minibatches win).
 - Watchdog passes ENT/KL and defaults LR to 1.5e-4 in `scripts/watchdog.sh`.
 
 ### Critical-review response (2026-08-23)
