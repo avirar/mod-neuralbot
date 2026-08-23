@@ -223,8 +223,9 @@ def main():
     env = SharedMemoryVecEnv(timeout=60.0, reward_clip=reward_clip, reward_mode=reward_mode)
 
     num_bots = env.num_envs
-    buffer_size = 512 * num_bots
-    batch_size = 1024
+    batch_size = int(os.environ.get("NEURALBOT_BATCH_SIZE", "4096"))
+    n_epochs = int(os.environ.get("NEURALBOT_EPOCHS", "10"))
+    buffer_size = n_steps_env * num_bots
 
     print(f"SharedMemoryVecEnv ready: {num_bots} bots, {OBS_FLAT_SIZE} obs dims, {FRAME_BYTES} bytes/frame")
     print(f"Buffer: {buffer_size} samples, {buffer_size // batch_size} minibatches")
@@ -248,6 +249,8 @@ def main():
             model.verbose = 1  # loaded models may have been saved with verbose=0 (BC warm-start)
             model.learning_rate = learning_rate  # allow NEURALBOT_LR to retune resumed runs
             model.ent_coef = ent_coef          # and NEURALBOT_ENT (0.005 over-commits and oscillates)
+            model.batch_size = batch_size      # NEURALBOT_BATCH_SIZE retunes the update cost
+            model.n_epochs = n_epochs          # NEURALBOT_EPOCHS
             # Rebuild the lr schedule from the (possibly retuned) learning rate — the
             # serialized lr_schedule would otherwise keep the old base LR.
             model._setup_lr_schedule()
@@ -279,6 +282,7 @@ def main():
             verbose=1,
             n_steps=n_steps_env,
             batch_size=batch_size,
+            n_epochs=n_epochs,
             learning_rate=learning_rate,
             # Sparse delayed reward: a kill needs ~190 steps of approach before combat,
             # so the discount horizon must cover it (0.99 -> ~100 steps was too short;
