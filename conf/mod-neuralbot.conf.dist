@@ -11,6 +11,11 @@ NeuralBot.CleanupOnStartup = 0
 NeuralBot.AutoQuest = 1
 NeuralBot.BotCount = 400
 
+# Perf instrumentation: log batch cycle/step/wait timings (module.neuralbot.perf)
+# every N shared-memory batches. 0 disables. Covers cycle=step+wait where wait is the
+# Python reader + policy + handshake latency between batches.
+NeuralBot.PerfLogInterval = 250
+
 # Behavior-cloning demonstration recorder: when non-empty, appends fixed-size
 # NeuralBotBcRecord entries (header + full frame) for every playerbot action executed.
 # Used to record expert demonstrations from mod-playerbots for BC warm-start.

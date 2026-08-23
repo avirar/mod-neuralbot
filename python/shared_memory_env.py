@@ -65,8 +65,15 @@ class SharedMemoryVecEnv(VecEnv):
         self._queue: deque = deque(maxlen=QUEUE_MAXLEN)
         self._cond = threading.Condition()
         self._reader_stop = threading.Event()
+        self._harvest_ms_total = 0.0
+        self._harvest_n = 0
         self._reader = threading.Thread(target=self._reader_loop, daemon=True)
         self._reader.start()
+
+    @property
+    def reader_harvest_avg_ms(self) -> float:
+        """Average copy+flatten latency per batch in the reader thread (0 if none yet)."""
+        return (self._harvest_ms_total / self._harvest_n) if self._harvest_n else 0.0
 
     def _connect(self):
         # Wait for shared memory to appear
@@ -136,11 +143,14 @@ class SharedMemoryVecEnv(VecEnv):
                 time.sleep(0.0002)
                 continue
             try:
+                t0 = time.perf_counter()
                 frames = self._frames[:self.num_bots]
                 obs = flatten_frames(frames)
                 rewards = np.array(frames["reward"]["total"], copy=True)
                 components = np.array(frames["reward"]["components"], copy=True)
                 dones = self._dones[:self.num_bots].copy().astype(bool)
+                self._harvest_ms_total += (time.perf_counter() - t0) * 1000.0
+                self._harvest_n += 1
             except BufferError:
                 continue
             # Release C++ *after* copying — the backpressure guard in ProcessSharedMemoryStep

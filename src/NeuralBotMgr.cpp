@@ -35,6 +35,7 @@ void NeuralBotMgr::Initialize()
 
     _autoQuest = sConfigMgr->GetOption<bool>("NeuralBot.AutoQuest", true);
     _curriculumStaging = sConfigMgr->GetOption<bool>("NeuralBot.Curriculum", true);
+    _perfLogInterval = sConfigMgr->GetOption<uint32>("NeuralBot.PerfLogInterval", 250);
 
     NeuralBotFactory::CreateAccounts();
 
@@ -119,6 +120,8 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
     if (!sNeuralBotShm.TryReadActions(actions, _botCount))
         return;
 
+    auto tStep0 = std::chrono::steady_clock::now();
+
     static uint8_t frames[SHM_MAX_BOTS * SHM_FRAME_BYTES];
     static uint8_t dones[SHM_MAX_BOTS];
     float bot0Reward = 0.0f;
@@ -155,6 +158,41 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
 
     sNeuralBotShm.WriteFrames(frames, dones, _botCount);
     sNeuralBotShm.SignalObservationsReady();
+
+    // ── Perf instrumentation: cycle vs step vs wait, plus per-stage breakdown ──
+    auto tStep1 = std::chrono::steady_clock::now();
+    double stepMs = std::chrono::duration<double, std::milli>(tStep1 - tStep0).count();
+    double cycleMs = _perfSamples > 0
+        ? std::chrono::duration<double, std::milli>(tStep1 - _lastBatchDone).count()
+        : stepMs;
+    _lastBatchDone = tStep1;
+    _accCycleMs += cycleMs;
+    _accStepMs += stepMs;
+    _perfSamples++;
+
+    if (_perfSamples % _perfLogInterval == 0)
+    {
+        double avgCycle = _accCycleMs / _perfLogInterval;
+        double avgStep = _accStepMs / _perfLogInterval;
+        double actionMs = 0.0, rewardMs = 0.0, buildMs = 0.0;
+        uint32 stageSteps = 0;
+        for (auto& pair : _instances)
+        {
+            double a, r, b; uint32 s;
+            pair.second->GetPerfStages(a, r, b, s);
+            actionMs += a; rewardMs += r; buildMs += b; stageSteps += s;
+            pair.second->ClearPerfStages();
+        }
+        double n = stageSteps > 0 ? static_cast<double>(stageSteps) : 1.0;
+        LOG_INFO("module.neuralbot.perf",
+            "batches={} cycle={:.2f}ms step={:.2f}ms wait={:.2f}ms (C++ {:.0f}%) "
+            "| per-bot: action={:.3f}ms reward={:.3f}ms build={:.3f}ms",
+            _perfSamples, avgCycle, avgStep, avgCycle - avgStep,
+            avgCycle > 0 ? 100.0 * avgStep / avgCycle : 0.0,
+            actionMs / n, rewardMs / n, buildMs / n);
+        _accCycleMs = 0.0;
+        _accStepMs = 0.0;
+    }
 
     // Debug: sample bot 0 reward every 100 steps
     static uint32 stepSampleCounter = 0;

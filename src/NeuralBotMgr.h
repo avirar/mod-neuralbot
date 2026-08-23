@@ -19,6 +19,7 @@
 #include <string>
 #include <future>
 #include <cstdio>
+#include <chrono>
 
 class NeuralBotMgr
 {
@@ -77,6 +78,14 @@ private:
     // Shared memory: ordered bot access
     std::vector<std::string> _botOrder;
     uint32_t _botCount = 0;
+
+    // Perf instrumentation (batched SHM step cycle): accumulated over N batches,
+    // dumped as module.neuralbot.perf every NeuralBot.PerfLogInterval batches.
+    std::chrono::steady_clock::time_point _lastBatchDone;
+    double _accCycleMs = 0.0;
+    double _accStepMs = 0.0;
+    uint32 _perfSamples = 0;
+    uint32 _perfLogInterval = 250;
 
     struct PendingLogin
     {

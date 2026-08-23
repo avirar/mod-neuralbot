@@ -15,6 +15,7 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.3")
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 import logging
+import time
 import numpy as np
 import pymysql
 
@@ -149,6 +150,54 @@ class EpisodeStatsCallback(BaseCallback):
                 pass
 
 
+class PerfTimingCallback(BaseCallback):
+    """Times rollout vs PPO update so wall-clock bottlenecks are visible in the log.
+
+    SB3 calls on_rollout_start/end around collect_rollouts() and on_training_start/end
+    around train(). The train() call is pure overhead (no data collection), so
+    train_frac tells us how much wall-clock we lose to the update."""
+
+    def __init__(self, n_envs: int, n_steps: int, verbose=0):
+        super().__init__(verbose)
+        self.n_envs = n_envs
+        self.n_steps = n_steps
+        self._t0 = None
+        self._rollout_total = 0.0
+        self._train_total = 0.0
+        self._n = 0
+
+    def _on_rollout_start(self) -> None:
+        self._t0 = time.perf_counter()
+
+    def _on_rollout_end(self) -> None:
+        if self._t0 is not None:
+            self._rollout_total += time.perf_counter() - self._t0
+
+    def _on_training_start(self) -> None:
+        self._t0 = time.perf_counter()
+
+    def _on_training_end(self) -> None:
+        if self._t0 is None:
+            return
+        self._train_total += time.perf_counter() - self._t0
+        self._n += 1
+        rt = self._rollout_total / self._n
+        tt = self._train_total / self._n
+        rollout_fps = (self.n_steps * self.n_envs) / rt
+        harvest = 0.0
+        try:
+            env = self.model.get_env()
+            harvest = float(getattr(env, "reader_harvest_avg_ms", 0.0))
+        except Exception:
+            pass
+        print(
+            f"[perf] iter={self._n} rollout={rt:.2f}s train={tt:.2f}s "
+            f"train_frac={tt / (rt + tt) * 100:.1f}% rollout_fps={rollout_fps:.0f} "
+            f"harvest={harvest:.2f}ms",
+            flush=True,
+        )
+
+
 def main():
     host = os.environ.get("NEURALBOT_HOST", "127.0.0.1")
     port = int(os.environ.get("NEURALBOT_PORT", "9000"))
@@ -189,6 +238,7 @@ def main():
         name_prefix=os.path.basename(save_path),
     )
     stats_callback = EpisodeStatsCallback(DB_CONFIG)
+    perf_callback = PerfTimingCallback(num_bots, n_steps_env)
 
     if has_previous:
         try:
@@ -245,7 +295,7 @@ def main():
     print(f"Starting model.learn() on device={model.device} ...", flush=True)
     model.learn(
         total_timesteps=timesteps,
-        callback=[checkpoint_callback, stats_callback],
+        callback=[checkpoint_callback, stats_callback, perf_callback],
     )
 
     model.save(save_path)

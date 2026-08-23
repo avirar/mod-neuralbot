@@ -16,6 +16,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <string>
+#include <chrono>
 
 // Build a structured observation frame for an arbitrary Player (not just a NeuralBot).
 // Used by the BC demonstration recorder to observe playerbots; the reward tail is left
@@ -60,6 +61,11 @@ public:
 
     void SetMaxSteps(uint32 steps) { _maxSteps = steps; }
     uint32 GetStepCount() const { return _stepCount; }
+
+    // Perf instrumentation: accumulated stage times for the last N StepFrame calls.
+    // The manager samples and resets these every PerfLogInterval batches.
+    void GetPerfStages(double& actionMs, double& rewardMs, double& buildMs, uint32& steps) const;
+    void ClearPerfStages();
 
     void ResetRewardTracking();
 
@@ -126,6 +132,12 @@ private:
     float _prevTrainerDist = 0.0f;
     ObjectGuid _prevTrainerGuid;
     uint32 _spellsLearnedThisEpisode = 0;
+
+    // Perf instrumentation (accumulated over sampled steps)
+    double _accActionMs = 0.0;
+    double _accRewardMs = 0.0;
+    double _accBuildMs = 0.0;
+    uint32 _perfSteps = 0;
 };
 
 #endif

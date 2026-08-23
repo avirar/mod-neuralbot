@@ -1561,21 +1561,46 @@ NeuralBotFrameResult NeuralBotInstance::StepFrame(uint32 action)
         return result;
     }
 
+    auto t0 = std::chrono::steady_clock::now();
     ExecuteAction(action);
     _stepCount++;
+    auto t1 = std::chrono::steady_clock::now();
 
     if (_autoQuestEnabled)
         AutoCompleteQuests();
 
     NeuralBotReward reward;
     reward.total = ComputeReward(reward);
+    auto t2 = std::chrono::steady_clock::now();
     BuildFrame(result.frame);
     WriteFrameReward(result.frame.reward, reward);
+    auto t3 = std::chrono::steady_clock::now();
+
+    _accActionMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
+    _accRewardMs += std::chrono::duration<double, std::milli>(t2 - t1).count();
+    _accBuildMs  += std::chrono::duration<double, std::milli>(t3 - t2).count();
+    _perfSteps++;
 
     UpdateIdleTracking(reward.total);
 
     result.done = ShouldTerminate(result.info);
     return result;
+}
+
+void NeuralBotInstance::GetPerfStages(double& actionMs, double& rewardMs, double& buildMs, uint32& steps) const
+{
+    actionMs = _accActionMs;
+    rewardMs = _accRewardMs;
+    buildMs = _accBuildMs;
+    steps = _perfSteps;
+}
+
+void NeuralBotInstance::ClearPerfStages()
+{
+    _accActionMs = 0.0;
+    _accRewardMs = 0.0;
+    _accBuildMs = 0.0;
+    _perfSteps = 0;
 }
 
 NeuralBotFrame NeuralBotInstance::ResetFrame()
