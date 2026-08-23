@@ -9,7 +9,7 @@ set -u
 MODULE_DIR="/home/luke/GIT/azerothcore-wotlk/modules/mod-neuralbot"
 BIN_DIR="/home/luke/GIT/azerothcore-wotlk/env/dist/bin"
 FLAG="$MODULE_DIR/.maintenance"
-MODEL_PREFIX="wow_neuralbot_model_v12"
+MODEL_PREFIX="wow_neuralbot_model_v13"
 LOG="$MODULE_DIR/python/logs/watchdog.log"
 DB="mysql -u acore -pabc -h 127.0.0.1 -N -e"
 
@@ -36,7 +36,7 @@ start_worldserver() {
 }
 
 start_trainer() {
-    # Resume from the newest v5 checkpoint if one exists
+    # Resume from the newest checkpoint if one exists
     local newest
     newest=$(ls -1t "$MODULE_DIR"/${MODEL_PREFIX}*_steps.zip 2>/dev/null | head -1)
     if [ -n "$newest" ]; then
@@ -53,6 +53,7 @@ start_trainer() {
     # overridden via the systemd service environment.
     NEURALBOT_MODEL="$MODEL_PREFIX" NEURALBOT_TIMESTEPS=1000000000 \
         NEURALBOT_LR="${NEURALBOT_LR:-1.5e-4}" NEURALBOT_ENT="${NEURALBOT_ENT:-0.01}" NEURALBOT_KL="${NEURALBOT_KL:-0}" \
+        NEURALBOT_REWARD_MODE="${NEURALBOT_REWARD_MODE:-symlog}" \
         nohup python3 python/train_v3.py > "python/logs/train_auto_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
     disown
     log "trainer launched (pid $!)"
