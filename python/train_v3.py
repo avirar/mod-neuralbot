@@ -166,6 +166,9 @@ class PerfTimingCallback(BaseCallback):
         self._train_total = 0.0
         self._n = 0
 
+    def _on_step(self) -> bool:
+        return True
+
     def _on_rollout_start(self) -> None:
         self._t0 = time.perf_counter()
 
