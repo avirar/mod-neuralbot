@@ -71,10 +71,17 @@ def cmd_progress(records: np.ndarray) -> None:
     rec = records[order]
 
     same_bot = rec["botGuid"][1:] == rec["botGuid"][:-1]
-    xp_delta = (rec["frame"]["self"]["xp"][1:].astype(np.int64)
-                - rec["frame"]["self"]["xp"][:-1].astype(np.int64))
-    lvl_delta = (rec["frame"]["self"]["level"][1:].astype(np.int64)
-                 - rec["frame"]["self"]["level"][:-1].astype(np.int64))
+    xp_t = rec["frame"]["self"]["xp"][:-1].astype(np.int64)
+    xp_t1 = rec["frame"]["self"]["xp"][1:].astype(np.int64)
+    next_xp_t = rec["frame"]["self"]["nextLevelXp"][:-1].astype(np.int64)
+    lvl_t = rec["frame"]["self"]["level"][:-1].astype(np.int64)
+    lvl_t1 = rec["frame"]["self"]["level"][1:].astype(np.int64)
+    # Reconstruct true XP gain across a level-up (xp counter resets with carry-over;
+    # otherwise a level-up reads as a large negative delta).
+    xp_delta = xp_t1 - xp_t
+    leveled = lvl_t1 > lvl_t
+    xp_delta[leveled] = (next_xp_t[leveled] - xp_t[leveled]) + xp_t1[leveled]
+    lvl_delta = lvl_t1 - lvl_t
     money_delta = (rec["frame"]["self"]["money"][1:].astype(np.int64)
                    - rec["frame"]["self"]["money"][:-1].astype(np.int64))
     # Action taken at time t -> progress observed at t+1.
