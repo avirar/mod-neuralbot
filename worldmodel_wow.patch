@@ -1,0 +1,70 @@
+diff --git a/configs/configs.yaml b/configs/configs.yaml
+index 7ea8e7e..a5a80cc 100644
+--- a/configs/configs.yaml
++++ b/configs/configs.yaml
+@@ -1,5 +1,5 @@
+ defaults:
+-  - env: dmc_vision
++  - env: wow
+   - model: size12M
+   # Disable Hydra's Python logging-to-file (train.log)
+   - override hydra/job_logging: disabled
+@@ -20,9 +20,9 @@ batch_length: 64
+ buffer:
+   batch_size: ${batch_size}
+   batch_length: ${batch_length}
+-  max_size: 5e5
++  max_size: 1e6
+   device: ${device}
+-  storage_device: ${device}
++  storage_device: cpu
+ 
+ trainer:
+   steps: ${env.steps}
+diff --git a/configs/env/wow.yaml b/configs/env/wow.yaml
+new file mode 100644
+index 0000000..0afb733
+--- /dev/null
++++ b/configs/env/wow.yaml
+@@ -0,0 +1,17 @@
++task: 'wow'
++steps: 2e6
++env_num: 400
++eval_episode_num: 0
++action_repeat: 1
++train_ratio: 64
++time_limit: 0
++
++seed: ${seed}
++device: ${device}
++
++encoder:
++  mlp_keys: 'obs'
++  cnn_keys: '$^'
++decoder:
++  mlp_keys: 'obs'
++  cnn_keys: '$^'
+diff --git a/envs/__init__.py b/envs/__init__.py
+index dfdfd2c..00d537f 100644
+--- a/envs/__init__.py
++++ b/envs/__init__.py
+@@ -6,6 +6,19 @@ from . import parallel, wrappers
+ def make_envs(config):
+     suite = config.task.split("_", 1)[0]
+ 
++    if suite == "wow":
++        # mod-neuralbot batched shared-memory env: one env object IS the 400-bot batch,
++        # so skip ParallelEnv (subprocess-per-env) entirely.
++        import os
++        import sys
++        sys.path.insert(
++            0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "python"))
++        )
++        from wow_world_model_env import WoWWorldModelEnv
++        train_envs = WoWWorldModelEnv(num_bots=config.env_num)
++        eval_envs = None
++        return train_envs, eval_envs, train_envs.observation_space, train_envs.action_space
++
+     if suite == "isaaclab":
+         return _make_isaaclab_envs(config)
+ 
