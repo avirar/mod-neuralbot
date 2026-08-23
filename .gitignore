@@ -8,3 +8,4 @@ python/logs/
 *_episodes.csv
 __pycache__/
 
+python/bc_demos/
