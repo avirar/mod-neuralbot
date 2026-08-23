@@ -4,6 +4,30 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.6.1] — 2026-08-23
+
+### Added
+- **BC demonstration recorder.** `NeuralBot.BcRecordPath` (empty = off) makes the
+  worldserver append fixed-size `NeuralBotBcRecord`s — `botGuid/targetGuid/seq/name[64]`
+  + the full structured frame — for every executed **playerbot** action. Backed by a new
+  `PlayerbotScript::OnPlayerbotActionExecuted` hook (parent repo `ScriptMgr.h` +
+  `ScriptDefines/PlayerbotsScript.cpp`, dispatched from mod-playerbots
+  `Engine::ListenAndExecute` on branch `neuralbot-bc`). `python/bc_analyze.py` stream-
+  parses the stream into an action-name histogram + per-action progress (xp/level/money
+  deltas between consecutive per-bot frames) — the measurement that decides which
+  expert behaviors are worth return-filtered cloning.
+- `BuildFrameFor(Player*, frame, guidsOut, countOut)` — decouples frame building from
+  `NeuralBotInstance` so arbitrary players (playerbots) can be observed.
+
+### Changed
+- **Observation normalization (Tier 0).** `flatten_frames` now maps each field into a
+  sane range (ratios for hp/mana/xp, log1p for money/IDs/cooldowns/flags, fixed divisors
+  for level/position/distance) instead of feeding raw mixed-magnitude floats to the MLP.
+  Same `OBS_FLAT_SIZE` (1148).
+- **Reward rescale (Tier 0).** `NEURALBOT_REWARD_MODE=symlog` (default) replaces the
+  hard `[-1, 0.3]` clip — `sign(r)·log1p(|r|)` preserves the +20/+10/+0.01 magnitude
+  gradient the clip destroyed. `clip`/`none` retained.
+
 ## [0.6.0] — 2026-08-23
 
 ### Added

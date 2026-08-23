@@ -20,7 +20,7 @@ parent):
 | Repo | Path | `origin` (avirar fork) | `upstream` | Branches |
 |------|------|------------------------|------------|----------|
 | azerothcore | `/home/luke/GIT/azerothcore-wotlk` | `avirar/azerothcore-wotlk` | `mod-playerbots/azerothcore-wotlk` | `neuralbot` (ours, build branch), `Playerbot` (mirrors upstream) |
-| playerbots  | `…/modules/mod-playerbots` | `avirar/mod-playerbots` | `mod-playerbots/mod-playerbots` | `master` |
+| playerbots  | `…/modules/mod-playerbots` | `avirar/mod-playerbots` | `mod-playerbots/mod-playerbots` | `master` (upstream), `neuralbot-bc` (ours: `OnPlayerbotActionExecuted` hook) |
 | neuralbot   | `…/modules/mod-neuralbot` | `avirar/mod-neuralbot` | — | `master` |
 
 - Build/run happens from the parent repo on the **`neuralbot`** branch.
@@ -40,7 +40,7 @@ bash acore.sh compiler compile        # fresh (slow)
 # Run training (module dir) — preferred detached launch
 cd modules/mod-neuralbot
 NEURALBOT_LR=1.5e-4 NEURALBOT_ENT=0.01 NEURALBOT_KL=0 \
-    scripts/launch_trainer.sh wow_neuralbot_model_v12
+    scripts/launch_trainer.sh wow_neuralbot_model_v13
 
 # Or directly (foreground)
 source .venv/bin/activate
@@ -52,6 +52,11 @@ NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
   `setsid nohup bash -c 'exec tail -f /dev/null | ./worldserver' >> ws_console.out 2>&1 < /dev/null &`
 - Episode stats → MySQL `acore_characters.neuralbot_episodes`.
 - Python venv: `modules/mod-neuralbot/.venv` (Python 3.12, `--system-site-packages`).
+- BC demo analysis: `python3 python/bc_analyze.py {hist|progress} python/bc_demos/demos.bin`.
+- The `OnPlayerbotActionExecuted` hook lives in the **parent repo** (`ScriptMgr.h` +
+  `ScriptDefines/PlayerbotsScript.cpp`, branch `neuralbot`) and is fired from
+  **mod-playerbots** `Engine::ListenAndExecute` (branch `neuralbot-bc`). Both are
+  required for the BC recorder to fire — build with mod-playerbots on `neuralbot-bc`.
 - Trainer log: `ls -t python/logs/train_v12_*.log | head -1` (NOT `tail -1` — picks the stale log).
 - Resume lineage: `cp <newest *_steps.zip> wow_neuralbot_model_v12.zip` then relaunch.
 - `pkill -f "[t]rain_v3.py"` (bracket trick) — never put a literal `train_v3.py` in the
@@ -123,12 +128,39 @@ Done:
   (`scripts/watchdog.sh`, `neuralbot-watchdog.service`; `.maintenance` flag in the module
   dir stands it down during manual work).
 
-### Active hyperparameters (v12 lineage)
+### Active hyperparameters (v13 lineage)
 - `NEURALBOT_LR=1.5e-4`, `NEURALBOT_ENT=0.01`, `NEURALBOT_KL=0` (guard off — it was
   pinning LR at its 1e-5 floor; SBX 0.25.0 *does* serialize `target_kl`/`adaptive_lr`).
-- `NEURALBOT_TIMESTEPS=1000000000`, `NEURALBOT_REWARD_CLIP=0.3`.
+- `NEURALBOT_TIMESTEPS=1000000000`, `NEURALBOT_REWARD_MODE=symlog` (default; the old
+  `[-1,0.3]` clip collapsed +20/+10/+0.01 onto one value — symlog preserves the gradient).
 - gamma 0.999, gae_lambda 0.98, n_steps 1024.
 - Watchdog passes ENT/KL and defaults LR to 1.5e-4 in `scripts/watchdog.sh`.
+
+### Critical-review response (2026-08-23)
+A code review + RL-literature survey (`REVIEW.md`) established the agent was **not
+learning** (~1B steps at max entropy, EV ≈ 0, flat reward/kills — all verified). The
+accepted plan:
+- **Tier 0 (done, v13)**: per-field observation normalization in `flatten_frames` +
+  `symlog` reward. Fresh v13 lineage, v12 retired.
+- **Tier 1 (in progress)**: measure-then-map BC warm-start from mod-playerbots +
+  a DreamerV3/NE-Dreamer world-model spike in parallel.
+- BC recorder live: `NeuralBot.BcRecordPath` (worldserver appends fixed-size
+  `NeuralBotBcRecord`s = header + full frame per executed playerbot action);
+  `python/bc_analyze.py` reports the action histogram + per-action progress. The
+  measurement decides *which* expert behaviors are worth cloning (return-filtered BC
+  — only actions that lead to xp/kills/loot get distilled, so playerbot bugs don't
+  propagate).
+
+### World-model survey (2026-08-23)
+- **NE-Dreamer / R2-Dreamer (PyTorch)** is the recommended spike: one codebase covers
+  `ne_dreamer`/`r2dreamer`/`dreamer` via `model.rep_loss`; NE-Dreamer's temporal
+  transformer targets long-horizon memory/navigation (DMLab Rooms) — exactly the
+  walk-to-trainer/quest-giver pain point. Clean Hydra config + `envs/parallel.py`.
+- **danijar/dreamerv3 (JAX)** matches our JAX stack but has a more idiosyncratic
+  `embodied` framework and worse env-adapter ergonomics.
+- Integration: write one shm adapter (batched env = 400 bots → `reset`/`step`),
+  register in their `envs/` module. They target Python 3.11; ours is 3.12 (may need a
+  separate venv).
 
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills
@@ -136,12 +168,12 @@ Training runs:
 - v5 = v0.4.0 action space, resumed across rebuilds from `*_steps.zip` checkpoints.
 - v8–v12 = variance-reduction stack (lr sweep, KL guard, reward clip). Kill-rate oscillation
   (~0.44↔0.20, ~1h period) traced to the KL guard never actually engaging (SBX serialization
-  bug) — now fixed. v12 runs lr 1.5e-4, guard off; level distribution climbs through the
-  band (lvl7 cohort forming).
+  bug) — now fixed.
+- v13 = Tier-0 fixes (normalized obs + symlog reward), fresh lineage, lr 1.5e-4 guard off.
 
-Next (ROADMAP): §3 kill remaining auto-services (AutoQuest, cast auto-target fallback,
-COMPLETE_QUEST/LOOT context scans), §6 learn trainer navigation, §5 DreamerV3,
-curriculum.
+Next (ROADMAP): Tier 1 — BC measurement (record playerbot demos, histogram, decide
+what to clone), DreamerV3/NE-Dreamer spike; defer §3 (kill auto-services) until the
+warm-start or a denser signal exists.
 
 ## Conventions
 
