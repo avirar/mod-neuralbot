@@ -52,13 +52,28 @@ NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
   `setsid nohup bash -c 'exec tail -f /dev/null | ./worldserver' >> ws_console.out 2>&1 < /dev/null &`
 - Episode stats → MySQL `acore_characters.neuralbot_episodes`.
 - Python venv: `modules/mod-neuralbot/.venv` (Python 3.12, `--system-site-packages`).
+
+### QoL scripts (`scripts/`)
+
+| Script | Purpose |
+|--------|---------|
+| `start_training.sh [prefix] [steps]` | Start worldserver (if down) + wait for 400 bots + launch/resume trainer; clears `.maintenance` |
+| `stop_training.sh [world]` | Stop trainer (optionally + worldserver); sets `.maintenance` |
+| `status.sh` | One-shot health snapshot (processes, bots, recorder, trainer metrics, disk) |
+| `bc_report.sh [hist\|progress] [--limit N]` | Run `bc_analyze.py` on `python/bc_demos/demos.bin` |
+| `archive_bc_demos.sh [--force]` | Move demos.bin to NAS (refuses while recorder is live unless `--force`) |
+| `archive_to_nas.sh` | Daily NAS archiver (episodes, old checkpoints, logs, `Server.log`) |
+| `launch_trainer.sh <prefix>` | Trainer-only detached launch (assumes worldserver + bots up) |
+| `sync_upstream.sh` | Weekly upstream sync (fetch + merge + push) |
+
 - BC demo analysis: `python3 python/bc_analyze.py {hist|progress} python/bc_demos/demos.bin`.
 - The `OnPlayerbotActionExecuted` hook lives in the **parent repo** (`ScriptMgr.h` +
   `ScriptDefines/PlayerbotsScript.cpp`, branch `neuralbot`) and is fired from
   **mod-playerbots** `Engine::ListenAndExecute` (branch `neuralbot-bc`). Both are
   required for the BC recorder to fire — build with mod-playerbots on `neuralbot-bc`.
-- Trainer log: `ls -t python/logs/train_v12_*.log | head -1` (NOT `tail -1` — picks the stale log).
-- Resume lineage: `cp <newest *_steps.zip> wow_neuralbot_model_v12.zip` then relaunch.
+- Trainer log: `ls -t python/logs/train_v13_*.log | head -1` (NOT `tail -1` — picks the stale log).
+- Resume lineage: `cp <newest *_steps.zip> wow_neuralbot_model_v13.zip` then relaunch
+  (or `start_training.sh` / the watchdog do it automatically).
 - `pkill -f "[t]rain_v3.py"` (bracket trick) — never put a literal `train_v3.py` in the
   same shell that runs pkill.
 

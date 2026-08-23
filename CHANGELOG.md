@@ -18,6 +18,9 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
   expert behaviors are worth return-filtered cloning.
 - `BuildFrameFor(Player*, frame, guidsOut, countOut)` — decouples frame building from
   `NeuralBotInstance` so arbitrary players (playerbots) can be observed.
+- QoL scripts: `start_training.sh` (start worldserver + trainer, clears `.maintenance`),
+  `stop_training.sh` (safe stop), `status.sh` (health snapshot), `bc_report.sh`,
+  `archive_bc_demos.sh`.
 
 ### Changed
 - **Observation normalization (Tier 0).** `flatten_frames` now maps each field into a
