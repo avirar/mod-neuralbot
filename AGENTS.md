@@ -139,9 +139,11 @@ pass the prefix explicitly (e.g. `start_training.sh wow_neuralbot_model_v14_bc`)
   watchdog script exited (clean `Halting process…` ~72 s after each boot). Unit tracked
   at `scripts/neuralbot-watchdog.service`; install to `~/.config/systemd/user/`.
 - **Storage:** overflow (old logs, generated weights/checkpoints) goes to `~/NAS/temp/neuralbot`.
-  Automated daily by `scripts/archive_to_nas.sh` (systemd user timer `neuralbot-archive.timer`,
-  04:23): episodes rows >2 d old, checkpoints beyond newest 5, old logs, `Server.log` >500 MB
-  (~1 GB/hour while training). Run it manually after big housekeeping.
+  Automated every 2h by `scripts/archive_to_nas.sh` (systemd user timer
+  `neuralbot-archive.timer`, `OnCalendar=*-*-* 00/2:00:00`): episodes rows >2 d old,
+  checkpoints beyond newest 5, old logs, `Server.log` >500 MB (~3.6 GB/hour at Debug
+  level — the 2h cadence keeps the root partition from filling). Run it manually after
+  big housekeeping.
 - **DBC data:** `SkillLineAbility.dbc` (spell → skill-line auto-learn, `AcquireMethod`,
   `RaceMask`/`ClassMask`, `MinSkillLineRank`) lives in `env/dist/bin/dbc/`. Queryable via
   `~/GIT/acore-data` (MCP server; set `ACORE_DBC_PATH` and `ACORE_FORMAT_FILE`).
