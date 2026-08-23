@@ -153,39 +153,38 @@ class EpisodeStatsCallback(BaseCallback):
 class PerfTimingCallback(BaseCallback):
     """Times rollout vs PPO update so wall-clock bottlenecks are visible in the log.
 
-    SB3 calls on_rollout_start/end around collect_rollouts() and on_training_start/end
-    around train(). The train() call is pure overhead (no data collection), so
-    train_frac tells us how much wall-clock we lose to the update."""
+    SB3's learn() loop is: collect_rollouts (on_rollout_start/end) -> train() -> repeat.
+    on_training_start/end fire ONLY once around the whole loop, so we instead measure
+    rollout = on_rollout_end - on_rollout_start, and train = gap from rollout end to the
+    NEXT rollout start (includes train() + dump_logs overhead)."""
 
     def __init__(self, n_envs: int, n_steps: int, verbose=0):
         super().__init__(verbose)
         self.n_envs = n_envs
         self.n_steps = n_steps
-        self._t0 = None
+        self._rollout_t0 = None
+        self._prev_end = None
+        self._n = 0
         self._rollout_total = 0.0
         self._train_total = 0.0
-        self._n = 0
 
     def _on_step(self) -> bool:
         return True
 
     def _on_rollout_start(self) -> None:
-        self._t0 = time.perf_counter()
+        self._rollout_t0 = time.perf_counter()
+        if self._prev_end is not None:
+            self._train_total += self._rollout_t0 - self._prev_end
 
     def _on_rollout_end(self) -> None:
-        if self._t0 is not None:
-            self._rollout_total += time.perf_counter() - self._t0
-
-    def _on_training_start(self) -> None:
-        self._t0 = time.perf_counter()
-
-    def _on_training_end(self) -> None:
-        if self._t0 is None:
+        if self._rollout_t0 is None:
             return
-        self._train_total += time.perf_counter() - self._t0
+        now = time.perf_counter()
+        self._rollout_total += now - self._rollout_t0
+        self._prev_end = now
         self._n += 1
         rt = self._rollout_total / self._n
-        tt = self._train_total / self._n
+        tt = self._train_total / max(self._n - 1, 1)
         rollout_fps = (self.n_steps * self.n_envs) / rt
         harvest = 0.0
         try:
