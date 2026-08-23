@@ -54,7 +54,7 @@ else
     NEURALBOT_MODEL="$MODEL_PREFIX" NEURALBOT_TIMESTEPS="$STEPS" \
         NEURALBOT_LR="${NEURALBOT_LR:-1.5e-4}" NEURALBOT_ENT="${NEURALBOT_ENT:-0.01}" NEURALBOT_KL="${NEURALBOT_KL:-0}" \
         NEURALBOT_REWARD_MODE="${NEURALBOT_REWARD_MODE:-symlog}" \
-        nohup python3 python/train_v3.py > "python/logs/train_manual_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
+        nohup python3 -u python/train_v3.py > "python/logs/train_manual_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
     disown
     log "trainer launched (pid $!)"
 fi

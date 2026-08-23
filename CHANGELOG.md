@@ -4,6 +4,24 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [0.7.0] — 2026-08-23
+
+### Added
+- **Behavior-cloning warm-start.** `python/bc_mapping.py` maps recorded playerbot
+  actions (name + frame) to the 41-action space (attack/loot/move/quest + spell casts),
+  skipping meta/noise; `python/bc_train.py` pre-trains the SBX PPO action head via
+  supervised cross-entropy (36k samples, loss 3.57 → 1.18) and saves a model for
+  `train_v3.py` to `PPO.load()` and fine-tune. The fine-tune lineage is
+  `wow_neuralbot_model_v14_bc`.
+
+### Fixed
+- **Deterministic spell ordering.** `PlayerSpellMap` is `std::unordered_map`, so the
+  frame's `spells[]` order (and therefore CAST_SPELL_0..7 semantics) was arbitrary and
+  unlearnable. `BuildFrame` now sorts spells by spellId, making the cast slots stable
+  and meaningful (a bot's rank-1 combat spells land in the first 8 slots).
+- Trainer stdout buffering: all launchers (`launch_trainer.sh`, `start_training.sh`,
+  `watchdog.sh`) now run `python3 -u` so SBX metrics appear in the log in real time.
+
 ## [0.6.1] — 2026-08-23
 
 ### Added

@@ -66,13 +66,31 @@ NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
 | `launch_trainer.sh <prefix>` | Trainer-only detached launch (assumes worldserver + bots up) |
 | `sync_upstream.sh` | Weekly upstream sync (fetch + merge + push) |
 
+### Restart procedure (use the scripts — do NOT do it manually)
+
+```bash
+cd modules/mod-neuralbot
+./scripts/stop_training.sh world      # sets .maintenance, stops trainer + worldserver
+# ... do the rebuild / config change ...
+./scripts/start_training.sh           # starts worldserver, waits for 400 bots, resumes trainer, clears .maintenance
+```
+
+`stop_training.sh world` + `start_training.sh` are the canonical pair. They handle the
+`.maintenance` flag, the pkill bracket trick, the worldserver start pattern, the 400-bot
+wait loop, and the checkpoint-resume staging — don't re-implement any of that inline.
+`start_training.sh` resumes the newest `*_steps.zip` of the given prefix automatically;
+pass the prefix explicitly (e.g. `start_training.sh wow_neuralbot_model_v14_bc`).
+
 - BC demo analysis: `python3 python/bc_analyze.py {hist|progress} python/bc_demos/demos.bin`.
 - The `OnPlayerbotActionExecuted` hook lives in the **parent repo** (`ScriptMgr.h` +
   `ScriptDefines/PlayerbotsScript.cpp`, branch `neuralbot`) and is fired from
   **mod-playerbots** `Engine::ListenAndExecute` (branch `neuralbot-bc`). Both are
   required for the BC recorder to fire — build with mod-playerbots on `neuralbot-bc`.
-- Trainer log: `ls -t python/logs/train_v13_*.log | head -1` (NOT `tail -1` — picks the stale log).
-- Resume lineage: `cp <newest *_steps.zip> wow_neuralbot_model_v13.zip` then relaunch
+- Trainer log: `ls -t python/logs/train_*.log | head -1` (NOT `tail -1` — picks the stale log).
+- Trainer metrics are stdout-**buffered** in the log (~8 KB) unless the launcher uses
+  `python3 -u` (all `scripts/*.sh` now do). Check the episode DB for immediate signal
+  instead of waiting for the log.
+- Resume lineage: `cp <newest *_steps.zip> wow_neuralbot_model_v14_bc.zip` then relaunch
   (or `start_training.sh` / the watchdog do it automatically).
 - `pkill -f "[t]rain_v3.py"` (bracket trick) — never put a literal `train_v3.py` in the
   same shell that runs pkill.
@@ -143,7 +161,7 @@ Done:
   (`scripts/watchdog.sh`, `neuralbot-watchdog.service`; `.maintenance` flag in the module
   dir stands it down during manual work).
 
-### Active hyperparameters (v13 lineage)
+### Active hyperparameters (v14_bc lineage)
 - `NEURALBOT_LR=1.5e-4`, `NEURALBOT_ENT=0.01`, `NEURALBOT_KL=0` (guard off — it was
   pinning LR at its 1e-5 floor; SBX 0.25.0 *does* serialize `target_kl`/`adaptive_lr`).
 - `NEURALBOT_TIMESTEPS=1000000000`, `NEURALBOT_REWARD_MODE=symlog` (default; the old
@@ -154,17 +172,23 @@ Done:
 ### Critical-review response (2026-08-23)
 A code review + RL-literature survey (`REVIEW.md`) established the agent was **not
 learning** (~1B steps at max entropy, EV ≈ 0, flat reward/kills — all verified). The
-accepted plan:
+accepted plan and its results:
 - **Tier 0 (done, v13)**: per-field observation normalization in `flatten_frames` +
-  `symlog` reward. Fresh v13 lineage, v12 retired.
-- **Tier 1 (in progress)**: measure-then-map BC warm-start from mod-playerbots +
-  a DreamerV3/NE-Dreamer world-model spike in parallel.
+  `symlog` reward. **Result: broke the stall** — kills went 0.20 → ~0.55 (3×), but then
+  **plateaued** at 0.52–0.74 (oscillating, reward halved 0.055→0.026, entropy still
+  ~96% of max). Vanilla PPO + sparse reward hit a ceiling even with sane inputs/reward.
+- **Tier 1 (in progress) — BC warm-start**: recorded ~106k playerbot demos, analyzed
+  which actions carry XP (combat/quest) vs meta-noise, wrote `bc_mapping.py` (name+frame
+  → 41-action) + `bc_train.py` (supervised pre-train of the SBX action head; loss
+  3.57→1.18, 36k samples). Fine-tune running as the `wow_neuralbot_model_v14_bc` lineage
+  (PPO from the BC init). Early sign: policy acts like the expert (MOVE 290/ep, ATTACK
+  238/ep, CAST 118/ep, NOOP 14/ep vs v13's ~40 NOOP).
+- **Spell-ordering fix**: `PlayerSpellMap` is `std::unordered_map`, so `BuildFrame`'s
+  spells[] order (and thus CAST_SPELL_0..7 semantics) was **arbitrary** — unlearnable.
+  Now sorted by spellId (deterministic; e.g. Smite lands in slot 2 for priests).
 - BC recorder live: `NeuralBot.BcRecordPath` (worldserver appends fixed-size
   `NeuralBotBcRecord`s = header + full frame per executed playerbot action);
-  `python/bc_analyze.py` reports the action histogram + per-action progress. The
-  measurement decides *which* expert behaviors are worth cloning (return-filtered BC
-  — only actions that lead to xp/kills/loot get distilled, so playerbot bugs don't
-  propagate).
+  `python/bc_analyze.py` reports the action histogram + per-action progress.
 
 ### World-model spike (2026-08-23) — READY to run
 - **NE-Dreamer / R2-Dreamer (PyTorch)** chosen over danijar/dreamerv3 (JAX, idiosyncratic
@@ -193,10 +217,12 @@ Training runs:
   (~0.44↔0.20, ~1h period) traced to the KL guard never actually engaging (SBX serialization
   bug) — now fixed.
 - v13 = Tier-0 fixes (normalized obs + symlog reward), fresh lineage, lr 1.5e-4 guard off.
+- v14_bc = **BC warm-start fine-tune** (PPO from the `wow_neuralbot_model_v14_bc` init,
+  after `bc_train.py` cloned 36k expert samples). Early: policy acts like the expert.
 
-Next (ROADMAP): Tier 1 — BC measurement (record playerbot demos, histogram, decide
-what to clone), DreamerV3/NE-Dreamer spike; defer §3 (kill auto-services) until the
-warm-start or a denser signal exists.
+Next (ROADMAP): monitor the v14_bc fine-tune (does the BC init break the v13 plateau?);
+if it plateaus again, launch the ready R2-Dreamer/NE-Dreamer world-model spike. Defer
+§3 (kill auto-services) until a denser signal exists.
 
 ## Conventions
 
