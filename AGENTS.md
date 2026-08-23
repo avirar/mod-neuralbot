@@ -166,16 +166,24 @@ accepted plan:
   — only actions that lead to xp/kills/loot get distilled, so playerbot bugs don't
   propagate).
 
-### World-model survey (2026-08-23)
-- **NE-Dreamer / R2-Dreamer (PyTorch)** is the recommended spike: one codebase covers
-  `ne_dreamer`/`r2dreamer`/`dreamer` via `model.rep_loss`; NE-Dreamer's temporal
-  transformer targets long-horizon memory/navigation (DMLab Rooms) — exactly the
-  walk-to-trainer/quest-giver pain point. Clean Hydra config + `envs/parallel.py`.
-- **danijar/dreamerv3 (JAX)** matches our JAX stack but has a more idiosyncratic
-  `embodied` framework and worse env-adapter ergonomics.
-- Integration: write one shm adapter (batched env = 400 bots → `reset`/`step`),
-  register in their `envs/` module. They target Python 3.11; ours is 3.12 (may need a
-  separate venv).
+### World-model spike (2026-08-23) — READY to run
+- **NE-Dreamer / R2-Dreamer (PyTorch)** chosen over danijar/dreamerv3 (JAX, idiosyncratic
+  `embodied` framework). One codebase covers `ne_dreamer`/`r2dreamer`/`dreamer` via
+  `model.rep_loss`; NE-Dreamer's temporal transformer targets long-horizon
+  memory/navigation (DMLab Rooms) — the walk-to-trainer/quest-giver pain point.
+- **Implementation (all in-repo):** `python/neuralbot_shm.py` (dependency-free shm
+  client + `flatten_frames`, single source of truth), `python/wow_world_model_env.py`
+  (`WoWWorldModelEnv` duck-typing the `ParallelEnv` contract), `scripts/setup_worldmodel_venv.sh`
+  (Python 3.11 + `torch==2.8.0+cu128` via uv). r2dreamer is cloned into `worldmodel/r2dreamer`
+  (gitignored); the config/hook changes are captured in `worldmodel_wow.patch`
+  (`envs/__init__.py` wow branch, `configs/env/wow.yaml`, `configs/configs.yaml`
+  buffer 1e6/cpu). See `WORLD_MODEL_SPIKE.md`.
+- **Run:** `worldmodel/.venv311/bin/python worldmodel/r2dreamer/train.py env=wow` —
+  **requires stopping the PPO trainer first** (both drive the same 400-bot shm; they
+  are mutually exclusive). The BC recorder (playerbot-side) keeps running either way.
+- Key facts: batched env of 400 is correct (buffer treats each env index as an
+  independent trajectory); raw native reward, no clip (WM reward head `symexp_twohot`
+  spans symlog ±20); `is_terminal` = death component (reward idx 3) > 0.
 
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills

@@ -20,7 +20,13 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
   `NeuralBotInstance` so arbitrary players (playerbots) can be observed.
 - QoL scripts: `start_training.sh` (start worldserver + trainer, clears `.maintenance`),
   `stop_training.sh` (safe stop), `status.sh` (health snapshot), `bc_report.sh`,
-  `archive_bc_demos.sh`.
+  `archive_bc_demos.sh`, `setup_worldmodel_venv.sh`.
+- **World-model spike (R2-Dreamer / NE-Dreamer) adapter** — `python/neuralbot_shm.py`
+  (dependency-free shm client + flatten_frames, now the single source of truth imported
+  by `shared_memory_env.py`) and `python/wow_world_model_env.py` (`WoWWorldModelEnv`
+  duck-typing the `ParallelEnv` contract; batched 400-bot env; raw native reward).
+  r2dreamer clone + config hook in `worldmodel/` (gitignored), captured as
+  `worldmodel_wow.patch`. See `WORLD_MODEL_SPIKE.md`.
 
 ### Changed
 - **Observation normalization (Tier 0).** `flatten_frames` now maps each field into a
