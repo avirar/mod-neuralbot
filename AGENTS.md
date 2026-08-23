@@ -206,7 +206,18 @@ accepted plan and its results:
   `NeuralBotBcRecord`s = header + full frame per executed playerbot action);
   `python/bc_analyze.py` reports the action histogram + per-action progress.
 
-### World-model spike (2026-08-23) — READY to run
+### World-model spike (2026-08-23) — RUNNING (launched 23:08, v14_bc plateaued)
+- **Launched** after the v14_bc BC fine-tune plateaued (kills 0.54→0.40):
+  `cd worldmodel/r2dreamer && nohup ../.venv311/bin/python train.py env=wow env.steps=2e7 …`
+  (PPO trainer stopped first via `stop_training.sh` — they share the 400-bot shm; the
+  worldserver + bots stay up). GPU goes 1%→~56%: this is the path that actually uses
+  the 5090 (RSSM + imagination training).
+- **One integration fix on first launch**: `is_first`/`is_last`/`is_terminal` must be
+  **bool** tensors (DMC convention; `rssm.obs_step` does `torch.where(reset, …)`), and
+  the observation space carries only the payload `obs` — fixed in `wow_world_model_env.py`.
+- **Initial metrics** (first ~10 min): `train/dyn_entropy` 77→74, `rep_entropy` 76→72
+  (both must fall below log K for structure), `episode/score` ~0 (random policy),
+  `episode/length` ~280 (bots dying), `fps/fps` ~500 (env throttled by train_ratio 64).
 - **NE-Dreamer / R2-Dreamer (PyTorch)** chosen over danijar/dreamerv3 (JAX, idiosyncratic
   `embodied` framework). One codebase covers `ne_dreamer`/`r2dreamer`/`dreamer` via
   `model.rep_loss`; NE-Dreamer's temporal transformer targets long-horizon
