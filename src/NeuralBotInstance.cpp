@@ -672,11 +672,13 @@ void BuildFrameFor(Player* bot, NeuralBotFrame& frame, ObjectGuid* entityGuidsOu
     // ── spells ──────────────────────────────────────────────────────────
     {
         PlayerSpellMap const& spellMap = bot->GetSpellMap();
-        size_t n = 0;
+        // PlayerSpellMap is std::unordered_map, so iteration order is arbitrary — a
+        // policy could never learn CAST_SPELL_i semantics. Sort by spellId so the
+        // frame order (and hence CAST_SPELL_0..7) is deterministic per bot.
+        std::vector<NBSpellRec> spells;
+        spells.reserve(NB_MAX_SPELLS);
         for (auto const& [spellId, state] : spellMap)
         {
-            if (n >= NB_MAX_SPELLS)
-                break;
             if (state->State == PLAYERSPELL_REMOVED)
                 continue;
             SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
@@ -686,7 +688,7 @@ void BuildFrameFor(Player* bot, NeuralBotFrame& frame, ObjectGuid* entityGuidsOu
             // Keeps CAST_SPELL_i indices useful for exploration.
             if (info->IsPassive())
                 continue;
-            NBSpellRec& rec = frame.spells[n];
+            NBSpellRec rec{};
             rec.spellId = spellId;
             rec.cooldownMs = bot->GetSpellCooldownDelay(spellId);
             rec.ready = !bot->HasSpellCooldown(spellId) ? 1 : 0;
@@ -694,8 +696,13 @@ void BuildFrameFor(Player* bot, NeuralBotFrame& frame, ObjectGuid* entityGuidsOu
             rec.range = info->GetMaxRange(true);
             rec.minRange = info->GetMinRange(true);
             rec.castTimeMs = info->CastTimeEntry ? static_cast<float>(info->CastTimeEntry->CastTime) : 0.0f;
-            ++n;
+            spells.push_back(rec);
         }
+        std::sort(spells.begin(), spells.end(),
+            [](NBSpellRec const& a, NBSpellRec const& b) { return a.spellId < b.spellId; });
+        size_t n = std::min<size_t>(spells.size(), NB_MAX_SPELLS);
+        for (size_t i = 0; i < n; ++i)
+            frame.spells[i] = spells[i];
         frame.counts.nSpells = static_cast<uint16_t>(n);
     }
 
