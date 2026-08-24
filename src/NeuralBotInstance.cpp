@@ -977,15 +977,21 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     out.spellLearned = _spellsLearnedThisEpisode * 10.0f;
     _spellsLearnedThisEpisode = 0;
 
-    out.timePenalty = 0.0f;
+    out.timePenalty = 0.001f;
 
-    // Native total: XP + gold + level milestone + quest completion + spell learned − death.
-    // Quest-turn-in XP also flows through xpDelta, but the discrete completion event
-    // gets its own sparse signal for cleaner long-sequence credit. Learning a spell is
-    // native character progression (same category as leveling): it is self-limiting
-    // (CanTeachSpell blocks re-buying a known rank, and money gates it), so it can't be
-    // gamed, and it shortens the otherwise-very-long walk→buy→cast→kill credit chain.
-    return out.xpDelta + out.lootReward + levelReward + out.questCompleted + out.spellLearned - out.deathPenalty;
+    // Dense reward (v0.8.0): the native milestones alone are too sparse for any
+    // learner — the world-model spike's reward head stayed at 0.0 loss for 20M steps.
+    // Add a constant time penalty (every step is non-zero) plus scaled approach/
+    // progress terms and damage, pointed at the milestones but not gameable: a full
+    // episode of "stand near X" nets less than one sparse milestone. PPO reads the
+    // total through symlog; the world model reads it raw (symexp_twohot spans ±20).
+    return out.xpDelta + out.lootReward + levelReward + out.questCompleted + out.spellLearned
+         + out.questProgress
+         + 0.02f * out.enemyProximity
+         + 0.10f * out.questProximity
+         + 0.05f * out.trainerProximity
+         + out.targetAcquired
+         - out.deathPenalty - out.damageTaken - out.timePenalty;
 }
 
 void NeuralBotInstance::ResetRewardTracking()
