@@ -946,15 +946,36 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     out.enemyProximity = enemyProximityReward;
 
     float targetAcquiredReward = 0.0f;
+    float damageDealt = 0.0f;
     {
         Unit* target = bot->GetSelectedUnit();
         ObjectGuid curTarget = target ? target->GetGUID() : ObjectGuid::Empty;
-        if (!curTarget.IsEmpty() && curTarget != _prevTargetGuid)
-            if (target->ToCreature() && !target->IsFriendlyTo(bot))
+        bool validEnemy = target && target->ToCreature() && !target->IsFriendlyTo(bot);
+        if (validEnemy && !curTarget.IsEmpty())
+        {
+            if (curTarget != _prevTargetGuid)
                 targetAcquiredReward = 0.5f;
+
+            // Damage DEALT = selected target's hp drop since last step. Dense, positive,
+            // and un-gameable (hitting requires engaging the enemy, which invites damage
+            // taken + death risk).
+            float tHp = static_cast<float>(target->GetHealth());
+            if (curTarget == _prevTargetGuid && _prevTargetHealth > 0.0f)
+            {
+                float dealt = _prevTargetHealth - tHp;
+                if (dealt > 0.0f)
+                    damageDealt = dealt / static_cast<float>(target->GetMaxHealth());
+            }
+            _prevTargetHealth = tHp;
+        }
+        else
+        {
+            _prevTargetHealth = 0.0f;
+        }
         _prevTargetGuid = curTarget;
     }
     out.targetAcquired = targetAcquiredReward;
+    out.damageDealt = damageDealt;
 
     float trainerProximityReward = 0.0f;
     if (_cachedNearestTrainerDist > 0.0f)
@@ -977,21 +998,18 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     out.spellLearned = _spellsLearnedThisEpisode * 10.0f;
     _spellsLearnedThisEpisode = 0;
 
-    out.timePenalty = 0.001f;
+    out.timePenalty = -0.001f;
 
-    // Dense reward (v0.8.0): the native milestones alone are too sparse for any
-    // learner — the world-model spike's reward head stayed at 0.0 loss for 20M steps.
-    // Add a constant time penalty (every step is non-zero) plus scaled approach/
-    // progress terms and damage, pointed at the milestones but not gameable: a full
-    // episode of "stand near X" nets less than one sparse milestone. PPO reads the
-    // total through symlog; the world model reads it raw (symexp_twohot spans ±20).
+    // Dense reward (v0.8.1): the native milestones alone are too sparse (the
+    // world-model reward head stayed at 0.0 for 20M steps), but the first dense
+    // attempt (proximity + target-acquired) was immediately gamed (scores 1000+ by
+    // target-switching). Keep ONLY non-gameable dense terms: a constant time penalty
+    // (every step non-zero), damage dealt (dense positive, requires engaging the
+    // enemy), and damage taken (dense negative, teaches efficient combat).
     return out.xpDelta + out.lootReward + levelReward + out.questCompleted + out.spellLearned
          + out.questProgress
-         + 0.02f * out.enemyProximity
-         + 0.10f * out.questProximity
-         + 0.05f * out.trainerProximity
-         + out.targetAcquired
-         - out.deathPenalty - out.damageTaken - out.timePenalty;
+         + out.damageDealt
+         - out.deathPenalty - out.damageTaken + out.timePenalty;
 }
 
 void NeuralBotInstance::ResetRewardTracking()

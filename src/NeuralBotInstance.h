@@ -113,6 +113,7 @@ private:
     float _cachedNearestEnemyDist = 0.0f;
     float _prevEnemyDist = 0.0f;
     ObjectGuid _prevTargetGuid;
+    float _prevTargetHealth = 0.0f;
 
     bool _autoQuestEnabled = false;
     uint32 _questAutoCompleted = 0;
