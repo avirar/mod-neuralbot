@@ -22,3 +22,10 @@ NeuralBot.PerfLogInterval = 250
 NeuralBot.BcRecordPath = ""
 # Downsample factor: 1 = record every action, N = every Nth action.
 NeuralBot.BcRecordEvery = 1
+
+# Curriculum teleport: stage bots next to the nearest HOSTILE within 120 yd at episode
+# start. DISABLED (0) — starting-zone mobs are mostly neutral, so the nearest hostile is
+# usually a level-5+ mob outside the enclave that kills the level-1 bot in ~10 steps
+# (no "deal damage -> kill" data ever enters the buffer). Bots now spawn like a real
+# player and fight level-appropriate mobs naturally.
+NeuralBot.Curriculum = 0
