@@ -225,6 +225,19 @@ accepted plan and its results:
   are still **intermittent** (~10% of episodes non-zero) — the actor hasn't yet
   consistently exploited the learned dynamics. Verdict pending: let it finish the
   budget (or longer); next levers are `train_ratio`/`horizon`/model size.
+- **Dense-reward round (v0.8.x, 2026-08-24/25):** the native milestones were too sparse
+  (`train/rew` stayed 0.0 for 20M steps). v0.8.0 added proximity/target-acquired shaping
+  but was **immediately gamed** (scores 1000+ via target-switching). v0.8.1 dropped the
+  gameable terms and kept only non-gameable dense signals: constant `timePenalty`
+  (−0.001/step), `damageDealt` (target hp-delta, +1.0 × hp fraction, dense positive),
+  `damageTaken` (negative). Result of the 20M-step re-run: **hacking gone** (scores
+  small), `train/loss/rew` 0.0→0.2 (reward head has a learnable target), but
+  **`train/rew` still 0.0** — the reward head never learned to predict non-zero reward
+  in imagination, and the non-zero episode fraction *declined* 15%→5-7% (max score
+  360, isolated). Root cause: bots die in ~10-15 steps (curriculum teleports them onto
+  mobs), so there is almost no "deal damage → kill" data for the reward head to learn
+  the combat→reward contingency. **Next lever: make bots survive long enough to fight**
+  (soften/remove the curriculum teleport, or forced-combat/exploration seeding).
 - **NE-Dreamer / R2-Dreamer (PyTorch)** chosen over danijar/dreamerv3 (JAX, idiosyncratic
   `embodied` framework). One codebase covers `ne_dreamer`/`r2dreamer`/`dreamer` via
   `model.rep_loss`; NE-Dreamer's temporal transformer targets long-horizon
