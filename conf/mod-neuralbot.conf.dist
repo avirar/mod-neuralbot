@@ -8,7 +8,11 @@ NeuralBot.BotAccountId = 0
 NeuralBot.MaxEpisodeSteps = 1000
 NeuralBot.LogPackets = 0
 NeuralBot.CleanupOnStartup = 0
-NeuralBot.AutoQuest = 1
+# Auto-accept + auto-complete quests. DISABLED (0) — the bots should LEARN to
+# pick up quests (INTERACT_TARGET at a quest giver) and turn them in
+# (COMPLETE_QUEST), not have them scaffolded. Reward selection at turn-in is
+# class/spec-aware (see NeuralBotInstance::ChooseQuestReward).
+NeuralBot.AutoQuest = 0
 NeuralBot.BotCount = 400
 
 # Perf instrumentation: log batch cycle/step/wait timings (module.neuralbot.perf)

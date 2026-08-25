@@ -1006,7 +1006,7 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     // target-switching). Keep ONLY non-gameable dense terms: a constant time penalty
     // (every step non-zero), damage dealt (dense positive, requires engaging the
     // enemy), and damage taken (dense negative, teaches efficient combat).
-    return out.xpDelta + out.lootReward + levelReward + out.questCompleted + out.spellLearned
+    return out.xpDelta + out.lootReward + levelReward + out.questAccepted + out.questCompleted + out.spellLearned
          + out.questProgress
          + out.damageDealt
          - out.deathPenalty - out.damageTaken + out.timePenalty;
@@ -1447,7 +1447,11 @@ void NeuralBotInstance::ExecuteActionLegacyQuestTurnIn()
                 {
                     ObjectGuid guid = c->GetGUID();
                     InjectCMSG(CMSG_QUESTGIVER_COMPLETE_QUEST, [guid, qid](WorldPacket& pkt) { pkt << guid << uint32(qid); });
-                    InjectCMSG(CMSG_QUESTGIVER_CHOOSE_REWARD, [guid, qid](WorldPacket& pkt) { pkt << guid << uint32(qid) << uint32(0); });
+                    if (quest->GetRewChoiceItemsCount() > 0)
+                    {
+                        uint32 choice = ChooseQuestReward(quest);
+                        InjectCMSG(CMSG_QUESTGIVER_CHOOSE_REWARD, [guid, qid, choice](WorldPacket& pkt) { pkt << guid << uint32(qid) << choice; });
+                    }
                     completed = true;
                     break;
                 }
@@ -1455,6 +1459,72 @@ void NeuralBotInstance::ExecuteActionLegacyQuestTurnIn()
             if (completed) break;
         }
     }
+}
+
+uint32 NeuralBotInstance::ChooseQuestReward(Quest const* quest)
+{
+    Player* bot = _player;
+    uint32 count = quest->GetRewChoiceItemsCount();
+    if (count <= 1 || !bot)
+        return 0;
+
+    // Class/spec stat weights (simplified from mod-playerbots' StatsWeightCalculator).
+    float strW = 0.0f, agiW = 0.0f, intW = 0.0f, staW = 0.0f, spiW = 0.0f;
+    switch (bot->getClass())
+    {
+        case CLASS_WARRIOR:      strW = 2.0f; staW = 1.5f; agiW = 0.5f; break;
+        case CLASS_PALADIN:      strW = 2.0f; staW = 1.5f; intW = 0.5f; spiW = 0.5f; break;
+        case CLASS_HUNTER:       agiW = 2.0f; staW = 1.0f; break;
+        case CLASS_ROGUE:        agiW = 2.0f; staW = 1.0f; break;
+        case CLASS_PRIEST:       intW = 2.0f; spiW = 1.5f; staW = 1.0f; break;
+        case CLASS_SHAMAN:       intW = 1.5f; agiW = 1.0f; strW = 1.0f; staW = 1.0f; break;
+        case CLASS_MAGE:         intW = 2.5f; staW = 1.0f; break;
+        case CLASS_WARLOCK:      intW = 2.0f; staW = 1.5f; break;
+        case CLASS_DRUID:        agiW = 1.5f; strW = 1.0f; intW = 1.0f; staW = 1.0f; break;
+        case CLASS_DEATH_KNIGHT: strW = 2.0f; staW = 1.5f; break;
+        default: break;
+    }
+
+    auto statValue = [](ItemTemplate const* proto, uint32 statType) -> float {
+        for (uint32 s = 0; s < proto->StatsCount && s < MAX_ITEM_PROTO_STATS; ++s)
+            if (proto->ItemStat[s].ItemStatType == statType)
+                return static_cast<float>(proto->ItemStat[s].ItemStatValue);
+        return 0.0f;
+    };
+
+    float bestScore = -1e9f;
+    uint32 bestIndex = 0;
+    for (uint32 i = 0; i < count; ++i)
+    {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(quest->RewardChoiceItemId[i]);
+        if (!proto)
+            continue;
+
+        float score;
+        if (bot->CanUseItem(proto) != EQUIP_ERR_OK)
+        {
+            // Unusable for this class — fall back to vendor gold value.
+            score = static_cast<float>(proto->SellPrice);
+        }
+        else
+        {
+            float statScore = strW * statValue(proto, ITEM_MOD_STRENGTH)
+                            + agiW * statValue(proto, ITEM_MOD_AGILITY)
+                            + intW * statValue(proto, ITEM_MOD_INTELLECT)
+                            + staW * statValue(proto, ITEM_MOD_STAMINA)
+                            + spiW * statValue(proto, ITEM_MOD_SPIRIT);
+            float baseScore = (proto->Class == ITEM_CLASS_ARMOR)
+                            ? static_cast<float>(proto->Armor) * 0.25f
+                            : (proto->Damage[0].DamageMin + proto->Damage[0].DamageMax) * 2.0f;
+            score = statScore + baseScore;
+        }
+        if (score > bestScore)
+        {
+            bestScore = score;
+            bestIndex = i;
+        }
+    }
+    return bestIndex;
 }
 
 void NeuralBotInstance::ExecuteActionLegacyLoot()
