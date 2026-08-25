@@ -102,28 +102,36 @@ target, so the agent navigates the real world rather than wiggling with turns.
 
 ---
 
-## Reward (native)
+## Reward (v0.8.1 + learn-to-quest)
 
-Scalar = weighted sum of the game's own signals. No shaping.
+Scalar = sum of native milestones + non-gameable dense terms. Gameable positional terms
+(proximity, target-acquired) were removed after v0.8.0 was exploited (scores 1000+ via
+target-switching).
+
+Summed into `total`:
 
 | Term | Source | Signal |
 |------|--------|--------|
 | `xp` | `PLAYER_XP` delta | leveling is the core objective |
-| `money` | `GetMoney()` delta | gold earned from loot/quests/vendoring |
-| `level` | `GetLevel()` delta | sparse bonus on level-up |
-| `death` | `OnPlayerJustDied` | sparse penalty |
-| `quest_complete` | `QUEST_STATUS_COMPLETE` transition | sparse bonus on turn-in |
-| `spell_learned` | `OnPlayerLearnSpell` | sparse bonus on learning a spell (v0.6.0) |
+| `money` | `GetMoney()` delta | gold from loot/quests/vendoring |
+| `level` | level-up | sparse +1 |
+| `quest_accepted` | new quest slot | +5 (pickup is learnable, rewarded) |
+| `quest_complete` | COMPLETE→REWARDED transition | +20 (turn-in) |
+| `quest_progress` | objective counter increment | +0.5/objective (quest kills > random kills) |
+| `spell_learned` | `OnPlayerLearnSpell` | +10 |
+| `damage_dealt` | selected target hp delta | +1.0 × hp fraction (dense positive, un-gameable) |
+| `damage_taken` | self hp loss | −0.5 × hp fraction |
+| `death` | `OnPlayerJustDied` | −10 |
+| `time` | per step | −0.001 |
 
-Reward components are logged to `neuralbot_episodes` for analysis; the shaping terms
-(`kill`, `enemy_proximity`, `target_acquired`, `quest_proximity`, `trainer_proximity`,
-`quest_progress`, `quest_accepted`, `damage_taken`) are **diagnostic-only** — not summed.
+Diagnostic-only (computed, not summed): `kill`, `enemy_proximity`, `target_acquired`,
+`quest_proximity`, `trainer_proximity`.
 
-Rationale: XP *is* the game's reward for leveling; money and quest completion are its
-other two currencies. Learning a spell is native progression too — self-limiting (a known
-rank can't be re-bought, money gates it), so it can't be gamed, and it shortens the
-walk→buy→cast→kill credit chain. Everything else (kills, exploration, looting) is
-instrumental and must be learned through these signals, not hand-shaped.
+Rationale: dense terms (`damage_dealt`/`damage_taken`/`time`) exist because the native
+milestones alone were too sparse for the world-model reward head (loss 0.0 for 20M
+steps). They were chosen to be non-gameable: dealing damage requires engaging the enemy
+(inviting damage + death risk); the time penalty is constant. Quest rewards are
+server-validated milestones, so they can be boosted safely.
 
 ---
 
@@ -144,7 +152,8 @@ instrumental and must be learned through these signals, not hand-shaped.
 1. **Native reward** — delete shaping terms from `ComputeReward` (small, isolated). ✅ (v0.2.0)
 2. **Structured state** — new frame schema in C++ (`BuildFrame`) + Python parser
    (`shared_memory_env.py`). ✅ (v0.3.0)
-3. **Auto-services off** — remove `AutoQuest`, auto-target, auto-loot paths.
+3. **Auto-services off** — `AutoQuest` disabled (✅ learn-to-quest: bots learn
+   pickup/turn-in via `INTERACT_TARGET`/`COMPLETE_QUEST`); auto-target/auto-loot still to remove.
 4. **Action rework** — point-nav + indexed targeting + spellbook-index casting.
 5. **DreamerV3** — swap policy; world model learns real dynamics.
 

@@ -4,6 +4,26 @@ All notable changes to `mod-neuralbot` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
+## [Unreleased]
+
+### Changed
+- **Curriculum teleport disabled** (`NeuralBot.Curriculum = 0`). The teleport staged
+  bots next to the nearest HOSTILE within 120 yd, but starting-zone mobs are mostly
+  neutral, so it dumped level-1 bots onto level-5+ mobs that killed them in ~10 steps —
+  the replay buffer never contained "deal damage → kill" transitions (zero neuralbot
+  kills in recent logs). Bots now spawn like a real player and fight level-appropriate
+  mobs; episodes went 10–15 → 300–800 steps.
+- **Auto-quest scaffolds disabled** (`NeuralBot.AutoQuest = 0`). Bots must now LEARN to
+  pick up quests (`INTERACT_TARGET` at a quest giver) and turn them in
+  (`COMPLETE_QUEST`) instead of auto-accept/auto-complete doing it for them.
+
+### Added
+- **`questAccepted` now enters the reward total** (+5) — accepting a quest is rewarded.
+- **Class/spec-aware quest reward selection** (`NeuralBotInstance::ChooseQuestReward`):
+  turn-in scores each choice item by primary-stat weights (str/agi/int/sta/spi per class)
+  + armor/damage base, falling back to vendor value for unusable items. Simplified from
+  mod-playerbots' `StatsWeightCalculator`.
+
 ## [0.7.0] — 2026-08-23
 
 ### Added

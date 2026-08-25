@@ -148,7 +148,7 @@ pass the prefix explicitly (e.g. `start_training.sh wow_neuralbot_model_v14_bc`)
   `RaceMask`/`ClassMask`, `MinSkillLineRank`) lives in `env/dist/bin/dbc/`. Queryable via
   `~/GIT/acore-data` (MCP server; set `ACORE_DBC_PATH` and `ACORE_FORMAT_FILE`).
 
-## Current state (2026-08-23, v0.6.0)
+## Current state (2026-08-25, v0.9.0-dev)
 
 Done:
 - PPO + shm IPC + MySQL logging (v0.1.0); native reward (v0.2.0); structured frames
@@ -256,6 +256,20 @@ accepted plan and its results:
   independent trajectory); raw native reward, no clip (WM reward head `symexp_twohot`
   spans symlog ±20); `is_terminal` = death component (reward idx 3) > 0.
 
+### Learn-to-quest + natural spawning (2026-08-25)
+- **Curriculum teleport removed** (`NeuralBot.Curriculum=0`): it staged bots next to the
+  nearest HOSTILE within 120 yd, but starting zones are mostly neutral → it dumped
+  level-1 bots onto level-5+ mobs that killed them in ~10 steps (zero neuralbot kills
+  in recent logs). Bots now spawn like real players. Episodes went 10–15 → 300–800
+  steps; real kills + quest turn-ins (47 bots, 3 quests) appeared in the wild.
+- **Auto-quest removed** (`NeuralBot.AutoQuest=0`): bots must learn pickup
+  (`INTERACT_TARGET`) + turn-in (`COMPLETE_QUEST`); `questAccepted` (+5) now enters the
+  reward total so pickup is rewarded. Turn-in reward choice is class/spec-aware
+  (`ChooseQuestReward`, simplified from playerbots' `StatsWeightCalculator`).
+- **Current run**: fresh R2-Dreamer world model, 2e7 steps, no teleport + no auto-quest,
+  dense reward v0.8.1 + questAccepted. Watching: does `train/rew` finally leave 0.0
+  with long-survival combat data in the buffer.
+
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills
   0.01/ep.
@@ -267,9 +281,11 @@ Training runs:
 - v14_bc = **BC warm-start fine-tune** (PPO from the `wow_neuralbot_model_v14_bc` init,
   after `bc_train.py` cloned 36k expert samples). Early: policy acts like the expert.
 
-Next (ROADMAP): monitor the v14_bc fine-tune (does the BC init break the v13 plateau?);
-if it plateaus again, launch the ready R2-Dreamer/NE-Dreamer world-model spike. Defer
-§3 (kill auto-services) until a denser signal exists.
+Next (ROADMAP): monitor the world-model run (no teleport + no auto-quest + v0.8.1 dense
+reward + questAccepted). If `train/rew` learns and scores climb, the combat+quest
+milestones are learnable; next levers are quest-POI navigation (a non-gameable approach
+signal) and loot/equip/talents/training/professions (each has a server hook → reward).
+Auto-target/auto-loot still to remove.
 
 ## Conventions
 
