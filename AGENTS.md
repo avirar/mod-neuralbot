@@ -269,6 +269,21 @@ accepted plan and its results:
 - **Current run**: fresh R2-Dreamer world model, 2e7 steps, no teleport + no auto-quest,
   dense reward v0.8.1 + questAccepted. Watching: does `train/rew` finally leave 0.0
   with long-survival combat data in the buffer.
+- **World-model result (finished ~07:43, 20M steps) — no stable exploitation, but
+  reward proved reachable.** Episodes 300–4000 steps (natural spawn), `dyn_entropy`
+  oscillated 52–62 the whole run (never converged — the diverse natural-spawn state
+  space was too much for the RSSM to compress), `action_entropy` oscillated 1.6–3.1
+  (explore without settling). BUT reward spikes up to **141.7** (~7 quest turn-ins)
+  prove the dense-reward + learn-to-quest path is reachable in the wild. `train/rew`
+  ~0.0 is *not* a failure signal here — `loss/rew` was 0.2 (learnable target); the
+  small mean reflects the small dominant rewards (time −0.001, damage 0.1–1.0).
+- **Switch to PPO v15_dense (~07:50).** The dense-reward + no-teleport + learn-to-quest
+  combo was never tried with PPO (only the world model). PPO needs no RSSM, so it
+  sidesteps the world model's core failure (dynamics never converged). Fresh lineage
+  `wow_neuralbot_model_v15_dense` (no BC init — it was overwritten, and the dense
+  `damageDealt` signal should make fighting learnable without warm-start). Watchdog
+  `MODEL_PREFIX` updated to v15_dense. Hyperparameters: LR 1.5e-4, ENT 0.01, KL 0,
+  BATCH 4096, EPOCHS 5, NSTEPS 1024, REWARD_MODE symlog, TIMESTEPS 1e9 (~16h at 17k fps).
 
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills
