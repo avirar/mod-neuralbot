@@ -64,6 +64,7 @@ private:
     bool _enabled = false;
     bool _autoQuest = false;
     bool _curriculumStaging = false;
+    bool _levelBandRespawn = false;
 
     // Behavior-cloning demonstration recorder (playerbots): appends fixed-size
     // NeuralBotBcRecord entries to the file named by NeuralBot.BcRecordPath.

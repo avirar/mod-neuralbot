@@ -206,6 +206,87 @@ void NeuralBotInstance::ReviveIfDead()
     _stepsWithoutReward = 0;
 }
 
+namespace
+{
+struct LevelBandHub
+{
+    uint16 mapId;
+    float x, y, z;
+};
+
+struct HubList
+{
+    uint8 count;
+    LevelBandHub hubs[4];
+};
+
+// Level-band respawn hubs (graveyard coordinates from game_graveyard — guaranteed safe,
+// central). Bands: 0 = 1-4 (starting subzone), 1 = 5-9 (main hub), 2 = 10-19
+// (next-zone hub). Level 20+ clamps to band 2 for now (bots are ~11 max).
+HubList const& GetLevelBandHubs(uint8 team, uint8 band)
+{
+    static HubList const ALLIANCE[3] = {
+        // band 0: 1-4
+        { 4, { { 0,   -8935.0f,  -189.0f,   80.0f },   // Elwynn, Northshire
+                { 0,   -6164.0f,   336.0f,  400.0f },   // Dun Morogh, Anvilmar (Coldridge)
+                { 1,   10385.0f,   812.0f, 1318.0f },   // Teldrassil, Aldrassil (Shadowglen)
+                { 530, -4123.0f, -13660.0f,  75.0f } } }, // Azuremyst, Ammen Vale
+        // band 1: 5-9
+        { 4, { { 0,   -9339.0f,   171.0f,   62.0f },   // Elwynn, Goldshire
+                { 0,   -5680.0f,  -519.0f,  396.0f },   // Dun Morogh, Kharanos
+                { 1,    9701.0f,   946.0f, 1291.0f },   // Teldrassil, Dolanaar
+                { 530, -4313.0f, -12441.0f,  17.0f } } }, // Azuremyst, Azure Watch
+        // band 2: 10-19
+        { 4, { { 0,   -10547.0f,  1197.0f,   32.0f },  // Westfall, Sentinel Hill
+                { 0,   -5351.0f,  -2882.0f,  341.0f },  // Loch Modan, Thelsamar
+                { 1,    6739.0f,   210.0f,   23.0f },  // Darkshore, Auberdine
+                { 530, -2021.0f, -11984.0f,  33.0f } } }, // Bloodmyst, Blood Watch
+    };
+    static HubList const HORDE[3] = {
+        // band 0: 1-4
+        { 4, { { 1,   -635.0f,  -4296.0f,  41.0f },   // Durotar, Valley of Trials
+                { 0,   1883.0f,   1629.0f,  94.0f },   // Tirisfal, Deathknell
+                { 1,  -2945.0f,   -153.0f,  66.0f },   // Mulgore, Red Cloud Mesa (Narache)
+                { 530, 10458.0f, -6365.0f,  40.0f } } }, // Eversong, Sunstrider Isle
+        // band 1: 5-9
+        { 4, { { 1,    233.0f,  -4794.0f,  10.0f },   // Durotar, Razor Hill
+                { 0,   2349.0f,    492.0f,  33.0f },   // Tirisfal, Brill
+                { 1,  -2175.0f,   -342.0f,  -6.0f },   // Mulgore, Bloodhoof Village
+                { 530, 8709.0f,  -6672.0f,  70.0f } } }, // Eversong, Fairbreeze (Falconwing)
+        // band 2: 10-19
+        { 3, { { 1,   -593.0f,  -2523.0f,  92.0f },   // Barrens, Crossroads
+                { 0,    516.0f,   1590.0f, 128.0f },   // Silverpine, Sepulcher
+                { 530, 7694.0f,  -6730.0f,  48.0f },   // Ghostlands, Tranquillien
+                { 0,      0.0f,      0.0f,   0.0f } } }, // unused
+    };
+    return (team == 0) ? ALLIANCE[band] : HORDE[band];
+}
+} // namespace
+
+void NeuralBotInstance::RespawnToLevelBand()
+{
+    Player* bot = _player;
+    if (!bot || !bot->IsInWorld() || !bot->IsAlive())
+        return;
+
+    uint32 level = bot->GetLevel();
+    if (level < 5)
+        return; // still in the 1-4 starting-subzone band — leave it where it spawned
+
+    uint8 band = (level >= 10) ? 2 : 1;
+    uint8 team = (bot->GetTeamId() == TEAM_ALLIANCE) ? 0 : 1;
+    HubList const& list = GetLevelBandHubs(team, band);
+    if (list.count == 0)
+        return;
+
+    LevelBandHub const& hub = list.hubs[urand(0, list.count - 1)];
+    float jitter = frand(-3.0f, 3.0f);
+    bot->GetMotionMaster()->Clear();
+    bot->TeleportTo(hub.mapId, hub.x + jitter, hub.y + jitter, hub.z, frand(0.0f, 6.2831853f));
+    LOG_DEBUG("module.neuralbot", "'{}' respawned to level-band hub (level {}, map {})",
+        GetName(), level, hub.mapId);
+}
+
 void NeuralBotInstance::StageEpisodeStart()
 {
     // Curriculum staging (ROADMAP §7): when a bot starts an episode too far from any

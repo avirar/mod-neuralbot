@@ -15,6 +15,14 @@ NeuralBot.CleanupOnStartup = 0
 NeuralBot.AutoQuest = 0
 NeuralBot.BotCount = 400
 
+# Level-band respawn (DISABLED-by-default? no — ENABLED). When a bot dies or its episode
+# resets and it has out-leveled the starting subzone (level >= 5), respawn it at a
+# faction-appropriate quest hub matching its level band (1-4 subzone, 5-9 main hub,
+# 10-19 next-zone hub). Graveyard coordinates from game_graveyard. This is the "player
+# progresses naturally to the next hub" mechanism — quests still drive progression, but
+# the bot is placed in level-appropriate content so gray-mob XP collapse can't happen.
+NeuralBot.LevelBandRespawn = 1
+
 # Perf instrumentation: log batch cycle/step/wait timings (module.neuralbot.perf)
 # every N shared-memory batches. 0 disables. Covers cycle=step+wait where wait is the
 # Python reader + policy + handshake latency between batches.

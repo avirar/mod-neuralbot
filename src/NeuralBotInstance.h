@@ -46,6 +46,7 @@ public:
     void OnPlayerCreatureKill(Creature* killed = nullptr);
     void OnPlayerLearnSpell(uint32 spellId);
     void ReviveIfDead();
+    void RespawnToLevelBand();
     void StageEpisodeStart();
     void ProcessBotPackets();
     void OnWorldUpdate(uint32 diff);

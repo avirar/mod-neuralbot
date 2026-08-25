@@ -35,6 +35,7 @@ void NeuralBotMgr::Initialize()
 
     _autoQuest = sConfigMgr->GetOption<bool>("NeuralBot.AutoQuest", true);
     _curriculumStaging = sConfigMgr->GetOption<bool>("NeuralBot.Curriculum", true);
+    _levelBandRespawn = sConfigMgr->GetOption<bool>("NeuralBot.LevelBandRespawn", true);
     _perfLogInterval = sConfigMgr->GetOption<uint32>("NeuralBot.PerfLogInterval", 250);
 
     NeuralBotFactory::CreateAccounts();
@@ -145,6 +146,8 @@ void NeuralBotMgr::ProcessSharedMemoryStep()
             {
                 it->second->ResetRewardTracking();
                 it->second->ReviveIfDead();
+                if (_levelBandRespawn)
+                    it->second->RespawnToLevelBand();
                 if (_curriculumStaging)
                     it->second->StageEpisodeStart();
             }
