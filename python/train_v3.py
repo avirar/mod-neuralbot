@@ -208,20 +208,21 @@ class EntropyScheduleCallback(BaseCallback):
     It never decayed, so the policy stayed near max entropy (the observed plateau).
     Decay ent_coef from the initial value to ent_final as num_timesteps advances."""
 
-    def __init__(self, start: float, end: float, total_timesteps: int, verbose=0):
+    def __init__(self, start: float, end: float, total_timesteps: int, decay_frac: float = 1.0, verbose=0):
         super().__init__(verbose)
         self.start = start
         self.end = end
-        self.total = max(int(total_timesteps), 1)
+        # Decay window: ent_coef reaches `end` by decay_frac of the total run, then stays.
+        self.window = max(float(total_timesteps) * decay_frac, 1.0)
         self._last_frac_pct = -1
 
     def _on_step(self) -> bool:
-        frac = min(float(self.model.num_timesteps) / self.total, 1.0)
+        frac = min(float(self.model.num_timesteps) / self.window, 1.0)
         self.model.ent_coef = self.start + (self.end - self.start) * frac
         pct = int(frac * 100)
-        if pct != self._last_frac_pct and pct % 5 == 0:
+        if pct != self._last_frac_pct and pct % 10 == 0:
             self._last_frac_pct = pct
-            print(f"[entropy] ent_coef={self.model.ent_coef:.5f} ({pct}% of run)", flush=True)
+            print(f"[entropy] ent_coef={self.model.ent_coef:.5f} ({pct}% of decay window)", flush=True)
         return True
 
 
@@ -232,6 +233,7 @@ def main():
     learning_rate = float(os.environ.get("NEURALBOT_LR", "4e-4"))
     ent_coef = float(os.environ.get("NEURALBOT_ENT", "0.01"))
     ent_final = float(os.environ.get("NEURALBOT_ENT_FINAL", "0.0005"))
+    ent_decay_frac = float(os.environ.get("NEURALBOT_ENT_DECAY_FRAC", "1.0"))
     n_steps_env = int(os.environ.get("NEURALBOT_NSTEPS", "1024"))
     reward_clip = float(os.environ.get("NEURALBOT_REWARD_CLIP", "0.3"))
     reward_mode = os.environ.get("NEURALBOT_REWARD_MODE", "symlog")
@@ -324,7 +326,7 @@ def main():
         )
         print(f"Fresh model created.", flush=True)
 
-    entropy_callback = EntropyScheduleCallback(ent_coef, ent_final, timesteps)
+    entropy_callback = EntropyScheduleCallback(ent_coef, ent_final, timesteps, ent_decay_frac)
 
     print(f"Starting model.learn() on device={model.device} ...", flush=True)
     model.learn(
