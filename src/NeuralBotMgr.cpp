@@ -36,6 +36,7 @@ void NeuralBotMgr::Initialize()
     _autoQuest = sConfigMgr->GetOption<bool>("NeuralBot.AutoQuest", true);
     _curriculumStaging = sConfigMgr->GetOption<bool>("NeuralBot.Curriculum", true);
     _levelBandRespawn = sConfigMgr->GetOption<bool>("NeuralBot.LevelBandRespawn", true);
+    _cleanupOnStartup = sConfigMgr->GetOption<bool>("NeuralBot.CleanupOnStartup", false);
     _perfLogInterval = sConfigMgr->GetOption<uint32>("NeuralBot.PerfLogInterval", 250);
 
     NeuralBotFactory::CreateAccounts();
@@ -69,6 +70,9 @@ void NeuralBotMgr::Shutdown()
 
 void NeuralBotMgr::SpawnAndLoginBots()
 {
+    if (_cleanupOnStartup)
+        NeuralBotFactory::CleanupBots();
+
     if (!NeuralBotFactory::CreateCharacters())
     {
         LOG_ERROR("module.neuralbot", "Failed to create characters");

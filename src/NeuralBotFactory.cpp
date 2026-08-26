@@ -214,13 +214,16 @@ bool NeuralBotFactory::CreateCharacters()
             return false;
         }
 
-        // Check if character already exists
+        // Check if character already exists — preserve across restarts (natural
+        // progression: levels/quests/gear persist). NeuralBot.CleanupOnStartup=1 calls
+        // CleanupBots() first for a fresh slate.
         CharacterCacheEntry const* entry = sCharacterCache->GetCharacterCacheByName(tpl.name);
         if (entry)
         {
-            LOG_INFO("module.neuralbot", "Character '{}' already exists (GUID: {}), force-recreating", tpl.name, entry->Guid.GetCounter());
-            CharacterDatabase.Execute("DELETE FROM characters WHERE guid = " + std::to_string(entry->Guid.GetCounter()));
-            sCharacterCache->DeleteCharacterCacheEntry(entry->Guid, entry->Name);
+            LOG_INFO("module.neuralbot", "Character '{}' already exists (GUID: {}, level {}), reusing",
+                tpl.name, entry->Guid.GetCounter(), entry->Level);
+            s_createdCharacters.push_back({tpl.name, entry->Guid, accountId});
+            continue;
         }
 
         // Create temporary WorldSession for character creation
