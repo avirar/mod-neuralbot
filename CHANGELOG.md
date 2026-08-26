@@ -23,6 +23,18 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
   turn-in scores each choice item by primary-stat weights (str/agi/int/sta/spi per class)
   + armor/damage base, falling back to vendor value for unusable items. Simplified from
   mod-playerbots' `StatsWeightCalculator`.
+- **Level-band respawn** (`NeuralBot.LevelBandRespawn = 1`). When a bot's episode resets
+  and it has out-leveled the starting subzone (level ≥ 5), it respawns at a
+  faction-appropriate quest hub matching its level band (1-4 subzone, 5-9 main hub,
+  10-19 next-zone hub) using safe graveyard coordinates from `game_graveyard`. Fixes the
+  gray-mob XP collapse (bots level 5-8 stuck in Northshire fighting level 1-3 mobs).
+
+### Fixed
+- **Bot characters are now preserved across restarts.** The factory force-recreated every
+  bot character on startup (reset to level 1, wiped quests/gear) — the opposite of
+  natural progression. Existing characters are now reused; `NeuralBot.CleanupOnStartup=1`
+  calls `CleanupBots()` for an explicit fresh slate (also wired the previously-dead
+  config option; the live config had it set to 1 and silently wiped all bots once).
 
 ## [0.7.0] — 2026-08-23
 

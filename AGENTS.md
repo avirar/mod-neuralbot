@@ -284,6 +284,16 @@ accepted plan and its results:
   `damageDealt` signal should make fighting learnable without warm-start). Watchdog
   `MODEL_PREFIX` updated to v15_dense. Hyperparameters: LR 1.5e-4, ENT 0.01, KL 0,
   BATCH 4096, EPOCHS 5, NSTEPS 1024, REWARD_MODE symlog, TIMESTEPS 1e9 (~16h at 17k fps).
+- **PPO v15_dense result (~248M steps, stopped 2026-08-26) — max-entropy plateau again.**
+  `entropy_loss` stayed ~3.6 (≈ log(41) = 97% of max — the policy never exploited),
+  `explained_variance` 0.90 → 0.586 (value fit worsened as the environment changed),
+  kills **0.87 → 0.16**/ep, reward −0.62 → −1.54. Level-band respawn + preserve-characters
+  worked mechanically (level-5 bots teleported to Kharanos/Goldshire/Brill graveyards;
+  levels survived restarts), but neither the dense reward nor natural spawn nor the
+  world model broke the stall. Three algorithms (PPO sparse, PPO dense, R2-Dreamer) and
+  three reward schemes all hit max-entropy/non-exploitation → the blocker is now
+  understood to be **algorithmic/architectural**, not reward or environment.
+- **Level-band respawn + preserve-characters shipped** (see CHANGELOG [Unreleased]).
 
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills
@@ -296,10 +306,13 @@ Training runs:
 - v14_bc = **BC warm-start fine-tune** (PPO from the `wow_neuralbot_model_v14_bc` init,
   after `bc_train.py` cloned 36k expert samples). Early: policy acts like the expert.
 
-Next (ROADMAP): monitor the world-model run (no teleport + no auto-quest + v0.8.1 dense
-reward + questAccepted). If `train/rew` learns and scores climb, the combat+quest
-milestones are learnable; next levers are quest-POI navigation (a non-gameable approach
-signal) and loot/equip/talents/training/professions (each has a server hook → reward).
+Next (ROADMAP): **deep research into modern RL architectures** — attention heads /
+mixture-of-experts decomposition (e.g. per-skill experts: exploration / combat / quest
+/ loot), world-model + policy hybrids, and scaffolding/curriculum that doesn't over-shape.
+Three algorithms have now plateaued at max entropy, so the next experiment should change
+**how the policy is represented and trained**, not the reward or the environment. Apply
+whatever the research surfaces to the existing shm env (`NeuralBotFrame` + 41-action
+space + dense reward).
 Auto-target/auto-loot still to remove.
 
 ## Conventions
