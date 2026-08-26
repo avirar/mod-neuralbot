@@ -112,7 +112,22 @@ Let the agent act; stop scripting the world for it.
 
 ---
 
-## Status snapshot (2026-08-23)
+## 10. Policy architecture (MoE + attention + hierarchy) — P0 (2026-08-26)
+
+Three algorithms (PPO sparse, PPO dense `v15_dense`, R2-Dreamer) have now plateaued at
+max entropy — the blocker is architectural, not reward or environment. The next
+iteration changes **how the policy is represented and trained**. Full diagnosis,
+sources and rationale in `RL_RESEARCH.md`.
+
+- [ ] Phase 0: entropy schedule (decay `ent_coef`) + diagnostics in `train_v3.py`.
+- [ ] Phase 1: contextual action masking (`COMPLETE_QUEST`/`LOOT`/cast validity).
+- [ ] Phase 2: MoE actor (SoftMoE, ~4 experts) as an SBX `ActorCriticPolicy`.
+- [ ] Phase 3: entity-attention encoder over the structured frame.
+- [ ] Phase 4: hierarchical options + RND intrinsic bonus.
+
+---
+
+## Status snapshot (2026-08-26)
 
 - PPO + shared memory + MySQL: **done** (v0.1.0).
 - Native reward (§2): **done** (v0.2.0, + spellLearned in v0.6.0). Shaping terms are
@@ -124,9 +139,14 @@ Let the agent act; stop scripting the world for it.
 - Baseline spells (§6): **done** (v0.6.0) — bots born with level-1 abilities; trainer
   purchases remain the learned path to higher ranks.
 - Research + design: **done** — `DESIGN.md` specifies the state schema, action rework,
-  and shm v2.
-- Remaining rebuild work, in order: §3 (kill auto-services), §6 (learn trainer navigation),
-  §5 (DreamerV3).
+  and shm v2; `RL_RESEARCH.md` (2026-08-26) diagnoses the max-entropy plateau and
+  proposes the MoE/attention/hierarchy v2 policy.
+- **Plateau diagnosis (2026-08-26)**: PPO sparse (v13/v14_bc), PPO dense (v15_dense),
+  and R2-Dreamer all stall at max entropy (~log 41). `v15_dense`: kills 0.87→0.16,
+  `explained_variance` 0.90→0.586, entropy ~3.6 over ~248M steps. Level-band respawn +
+  preserve-characters shipped and working; the stall is algorithmic (constant entropy
+  bonus + non-stationarity-induced plasticity loss) — see `RL_RESEARCH.md`.
+- Next: §10 Phase 0 (entropy schedule) is the cheapest test of the diagnosis.
 - Ops hardening (v0.6.0): shutdown crash class fixed (TCP handler disabled), systemd
   `KillMode=process`, KL guard over-braking fixed (`NEURALBOT_KL=0`, lr 1.5e-4).
 - Earlier: iter 1–4 trained; kills/loot/xp all climbing; spell learning blocked.
