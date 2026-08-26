@@ -52,7 +52,7 @@ start_trainer() {
     # guard (it was pinning LR at its 1e-5 floor; see train_v3.py). All three can be
     # overridden via the systemd service environment.
     NEURALBOT_MODEL="$MODEL_PREFIX" NEURALBOT_TIMESTEPS=1000000000 \
-        NEURALBOT_LR="${NEURALBOT_LR:-1.5e-4}" NEURALBOT_ENT="${NEURALBOT_ENT:-0.01}" NEURALBOT_KL="${NEURALBOT_KL:-0}" \
+        NEURALBOT_LR="${NEURALBOT_LR:-1.5e-4}" NEURALBOT_ENT="${NEURALBOT_ENT:-0.01}" NEURALBOT_ENT_FINAL="${NEURALBOT_ENT_FINAL:-0.0005}" NEURALBOT_KL="${NEURALBOT_KL:-0}" \
         NEURALBOT_REWARD_MODE="${NEURALBOT_REWARD_MODE:-symlog}" \
         nohup python3 -u python/train_v3.py > "python/logs/train_auto_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
     disown

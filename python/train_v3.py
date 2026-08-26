@@ -200,12 +200,38 @@ class PerfTimingCallback(BaseCallback):
         )
 
 
+class EntropyScheduleCallback(BaseCallback):
+    """Linearly decay ent_coef across the run so the policy is forced to exploit late.
+
+    A constant entropy bonus over a 41-action space is ~ent_coef*log(41) = 0.037/step of
+    gradient pulling toward uniform — the same order as the dense reward (damage 0.1-1.0).
+    It never decayed, so the policy stayed near max entropy (the observed plateau).
+    Decay ent_coef from the initial value to ent_final as num_timesteps advances."""
+
+    def __init__(self, start: float, end: float, total_timesteps: int, verbose=0):
+        super().__init__(verbose)
+        self.start = start
+        self.end = end
+        self.total = max(int(total_timesteps), 1)
+        self._last_frac_pct = -1
+
+    def _on_step(self) -> bool:
+        frac = min(float(self.model.num_timesteps) / self.total, 1.0)
+        self.model.ent_coef = self.start + (self.end - self.start) * frac
+        pct = int(frac * 100)
+        if pct != self._last_frac_pct and pct % 5 == 0:
+            self._last_frac_pct = pct
+            print(f"[entropy] ent_coef={self.model.ent_coef:.5f} ({pct}% of run)", flush=True)
+        return True
+
+
 def main():
     host = os.environ.get("NEURALBOT_HOST", "127.0.0.1")
     port = int(os.environ.get("NEURALBOT_PORT", "9000"))
     timesteps = int(os.environ.get("NEURALBOT_TIMESTEPS", "20000000"))
     learning_rate = float(os.environ.get("NEURALBOT_LR", "4e-4"))
     ent_coef = float(os.environ.get("NEURALBOT_ENT", "0.01"))
+    ent_final = float(os.environ.get("NEURALBOT_ENT_FINAL", "0.0005"))
     n_steps_env = int(os.environ.get("NEURALBOT_NSTEPS", "1024"))
     reward_clip = float(os.environ.get("NEURALBOT_REWARD_CLIP", "0.3"))
     reward_mode = os.environ.get("NEURALBOT_REWARD_MODE", "symlog")
@@ -298,10 +324,12 @@ def main():
         )
         print(f"Fresh model created.", flush=True)
 
+    entropy_callback = EntropyScheduleCallback(ent_coef, ent_final, timesteps)
+
     print(f"Starting model.learn() on device={model.device} ...", flush=True)
     model.learn(
         total_timesteps=timesteps,
-        callback=[checkpoint_callback, stats_callback, perf_callback],
+        callback=[checkpoint_callback, stats_callback, perf_callback, entropy_callback],
     )
 
     model.save(save_path)
