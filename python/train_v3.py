@@ -52,6 +52,21 @@ class EpisodeStatsCallback(BaseCallback):
             f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, {act_ph})"
         )
 
+    @property
+    def CREATE_SQL(self):
+        act_cols = ", ".join(f"act_{i} INT NOT NULL DEFAULT 0" for i in range(ACTION_COUNT))
+        return (
+            f"CREATE TABLE IF NOT EXISTS neuralbot_episodes ("
+            f"id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, "
+            f"episode INT NOT NULL, reward FLOAT NOT NULL DEFAULT 0, "
+            f"length INT NOT NULL DEFAULT 0, xp FLOAT NOT NULL DEFAULT 0, "
+            f"kill_count FLOAT NOT NULL DEFAULT 0, death FLOAT NOT NULL DEFAULT 0, "
+            f"quest_proximity FLOAT NOT NULL DEFAULT 0, quest_progress FLOAT NOT NULL DEFAULT 0, "
+            f"enemy_proximity FLOAT NOT NULL DEFAULT 0, target_acquired FLOAT NOT NULL DEFAULT 0, "
+            f"{act_cols}, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            f"KEY idx_episode (episode))"
+        )
+
     def __init__(self, db_config: dict, verbose=0):
         super().__init__(verbose)
         self.db_config = db_config
@@ -75,6 +90,8 @@ class EpisodeStatsCallback(BaseCallback):
         if self._conn is None:
             self._conn = pymysql.connect(**self.db_config)
             self._conn.autocommit(True)
+            with self._conn.cursor() as cur:
+                cur.execute(self.CREATE_SQL)
         else:
             self._conn.ping(reconnect=True)
         return self._conn

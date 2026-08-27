@@ -54,7 +54,7 @@ start_worldserver() { # $1=conf-arg $2=prefix $3=shmname-env
     renice -n 5 -p $! >/dev/null 2>&1 || true
 }
 
-start_trainer() { # $1=model $2=shm-path $3=decay_frac
+start_trainer() { # $1=model $2=shm-path $3=decay_frac $4=chardb
     local newest
     newest=$(ls -1t "$MODULE_DIR"/$1*_steps.zip 2>/dev/null | head -1)
     if [ -n "$newest" ]; then
@@ -73,7 +73,7 @@ start_trainer() { # $1=model $2=shm-path $3=decay_frac
         NEURALBOT_KL="${NEURALBOT_KL:-0}" NEURALBOT_NUM_BOTS="${NEURALBOT_NUM_BOTS:-800}" \
         NEURALBOT_REWARD_MODE="${NEURALBOT_REWARD_MODE:-symlog}" \
         NEURALBOT_BATCH_SIZE=4096 NEURALBOT_EPOCHS=5 NEURALBOT_NSTEPS=1024 \
-        SHM_PATH="$2" \
+        SHM_PATH="$2" NEURALBOT_DB_NAME="$4" \
         nohup python3 -u python/train_v3.py > "python/logs/train_auto_$1_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
     disown
     # Trainers yield to interactive use (games/desktop) under CPU contention only.
@@ -114,7 +114,7 @@ for spec in "${INSTANCES[@]}"; do
             rm -f "$GRACE"
             N=$(online_bots "$PREFIX" "$CHARDB")
             if [ "${N:-0}" -ge 790 ]; then
-                start_trainer "$MODEL" "/dev/shm$SHM" "$DECAY"
+                start_trainer "$MODEL" "/dev/shm$SHM" "$DECAY" "$CHARDB"
             else
                 log "instance $ID: bots=${N:-0} — worldserver unhealthy, not starting trainer"
             fi
