@@ -39,6 +39,11 @@ void NeuralBotMgr::Initialize()
     _cleanupOnStartup = sConfigMgr->GetOption<bool>("NeuralBot.CleanupOnStartup", false);
     _perfLogInterval = sConfigMgr->GetOption<uint32>("NeuralBot.PerfLogInterval", 250);
 
+    // Cleanup must run BEFORE account/character creation so the guid generator and all
+    // dependent tables are reset together (accounts + characters + dependents).
+    if (_cleanupOnStartup)
+        NeuralBotFactory::CleanupBots();
+
     NeuralBotFactory::CreateAccounts();
 
     auto templates = NeuralBotFactory::GetBotTemplates();
@@ -70,9 +75,6 @@ void NeuralBotMgr::Shutdown()
 
 void NeuralBotMgr::SpawnAndLoginBots()
 {
-    if (_cleanupOnStartup)
-        NeuralBotFactory::CleanupBots();
-
     if (!NeuralBotFactory::CreateCharacters())
     {
         LOG_ERROR("module.neuralbot", "Failed to create characters");
