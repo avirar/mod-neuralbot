@@ -138,11 +138,11 @@ uint32 NeuralBotFactory::GetBotCount()
 
 std::string NeuralBotFactory::GenerateBotName(uint32 index)
 {
-    // "Neuralbot" + 1..N base-26 letters, skipping names AzerothCore rejects:
+    // "<prefix>" + 1..N base-26 letters, skipping names AzerothCore rejects:
     //  - names ending in "GM"/"gm" (reserved; ObjectMgr::IsReservedName hardcodes it)
     //  - names with three consecutive identical letters (case-insensitive;
-    //    ObjectMgr::CheckPlayerName -> CHAR_NAME_THREE_CONSECUTIVE). Note the prefix
-    //    "Neuralbot" ends in 't', so a suffix starting "TT" would make "ttt".
+    //    ObjectMgr::CheckPlayerName -> CHAR_NAME_THREE_CONSECUTIVE).
+    std::string prefix = sConfigMgr->GetOption<std::string>("NeuralBot.BotCharacterName", "Neuralbot");
     auto encode = [](uint32 v, uint8 len) {
         std::string s(len, 'A');
         for (int8 k = static_cast<int8>(len) - 1; k >= 0; --k) { s[k] = static_cast<char>('A' + (v % 26)); v /= 26; }
@@ -175,7 +175,7 @@ std::string NeuralBotFactory::GenerateBotName(uint32 index)
             cap *= 26;
         for (uint32 v = 0; v < cap; ++v)
         {
-            std::string name = "Neuralbot" + encode(v, len);
+            std::string name = prefix + encode(v, len);
             if (!isValid(name))
                 continue;
             if (seen == index)
@@ -183,7 +183,7 @@ std::string NeuralBotFactory::GenerateBotName(uint32 index)
             ++seen;
         }
     }
-    return "Neuralbot" + std::to_string(index); // unreachable for sane indices
+    return prefix + std::to_string(index); // unreachable for sane indices
 }
 
 std::vector<BotCharacterTemplate> NeuralBotFactory::GetBotTemplates()
