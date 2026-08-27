@@ -10,19 +10,22 @@ set -euo pipefail
 
 MODULE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 NAS_DIR="${NAS_DIR:-$HOME/NAS/temp/neuralbot}"
+# Local SSD tier for high-volume worldserver logs (keeps root disk lean).
+STORAGE_DIR="${STORAGE_DIR:-/media/storage/neuralbot}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 
 EPISODES_KEEP_DAYS="${EPISODES_KEEP_DAYS:-2}"
 KEEP_CHECKPOINTS="${KEEP_CHECKPOINTS:-5}"
 LOGS_KEEP_DAYS="${LOGS_KEEP_DAYS:-7}"
 SERVER_LOG_MAX_MB="${SERVER_LOG_MAX_MB:-500}"
+WS_LOG_MAX_MB="${WS_LOG_MAX_MB:-500}"
 
 DB_USER="${NEURALBOT_DB_USER:-acore}"
 DB_PASS="${NEURALBOT_DB_PASS:-abc}"
 DB_HOST="${NEURALBOT_DB_HOST:-127.0.0.1}"
 DB_NAME="${NEURALBOT_DB_NAME:-acore_characters}"
 
-mkdir -p "$NAS_DIR/episodes" "$NAS_DIR/checkpoints" "$NAS_DIR/logs"
+mkdir -p "$NAS_DIR/episodes" "$NAS_DIR/checkpoints" "$NAS_DIR/logs" "$STORAGE_DIR/logs"
 log() { echo "[$(date '+%F %T')] $*"; }
 
 # ── 1. Episodes table ────────────────────────────────────────────────────────
@@ -51,17 +54,30 @@ done
 find "$MODULE_DIR/python/logs" -name '*.log' -mtime +"$LOGS_KEEP_DAYS" -print0 2>/dev/null |
     while IFS= read -r -d '' f; do mv "$f" "$NAS_DIR/logs/"; log "log: moved $f"; done
 
-# ── 4. Worldserver log ───────────────────────────────────────────────────────
+# ── 4. Worldserver Server.log (-> local SSD tier) ─────────────────────────────
 SERVER_LOG="/home/luke/GIT/azerothcore-wotlk/env/dist/bin/Server.log"
 if [ -f "$SERVER_LOG" ]; then
     SIZE_MB=$(( $(stat -c%s "$SERVER_LOG") / 1024 / 1024 ))
     if [ "$SIZE_MB" -gt "$SERVER_LOG_MAX_MB" ]; then
-        gzip -c "$SERVER_LOG" > "$NAS_DIR/logs/Server_${STAMP}.log.gz"
+        gzip -c "$SERVER_LOG" > "$STORAGE_DIR/logs/Server_${STAMP}.log.gz"
         truncate -s 0 "$SERVER_LOG"   # safe for the running append-only writer
-        log "Server.log: archived ${SIZE_MB}MB and truncated"
+        log "Server.log: archived ${SIZE_MB}MB -> SSD and truncated"
     else
         log "Server.log: ${SIZE_MB}MB (under ${SERVER_LOG_MAX_MB}MB cap)"
     fi
 fi
+
+# ── 5. Worldserver stdout logs ws*.out (redundant w/ Server.log; just cap disk) ──
+# Note: after truncate, the appender's write offset stays high, so apparent size
+# regrows as a SPARSE file; actual blocks (du) are what matter for disk pressure.
+BIN_DIR="/home/luke/GIT/azerothcore-wotlk/env/dist/bin"
+for f in "$BIN_DIR"/ws_console.out "$BIN_DIR"/ws2.out "$BIN_DIR"/ws3.out; do
+    [ -f "$f" ] || continue
+    KB=$(du -k "$f" 2>/dev/null | cut -f1)
+    if [ "${KB:-0}" -gt $((WS_LOG_MAX_MB * 1024)) ]; then
+        truncate -s 0 "$f"
+        log "$(basename "$f"): capped (${KB}K blocks freed)"
+    fi
+done
 
 log "done"
