@@ -1081,6 +1081,23 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
 
     out.timePenalty = -0.001f;
 
+    // ── Potential-based reward shaping (PBRS, Ng et al. 1999) ──────────────
+    // F = γ·Φ(s') − Φ(s). Telescopes to a bounded term, so it cannot be gamed the
+    // way the v0.8.0 positional terms were (scores 1000+ via target-switching). A
+    // binary "has valid enemy target" potential is immune to switching (Φ stays 1),
+    // and the approach potential only rewards *distance decrease* (standing still or
+    // oscillating gives ~0). γ must match train_v3.py (gamma=0.999).
+    float potential = 0.0f;
+    if (_cachedNearestEnemyDist > 0.0f)
+        potential += 2.0f * std::max(0.0f, 1.0f - _cachedNearestEnemyDist / 40.0f);
+    {
+        Unit* sel = bot->GetSelectedUnit();
+        if (sel && sel->ToCreature() && !sel->IsFriendlyTo(bot) && sel->IsAlive())
+            potential += 1.0f;
+    }
+    float shaping = 0.999f * potential - _prevPotential;
+    _prevPotential = potential;
+
     // Dense reward (v0.8.1): the native milestones alone are too sparse (the
     // world-model reward head stayed at 0.0 for 20M steps), but the first dense
     // attempt (proximity + target-acquired) was immediately gamed (scores 1000+ by
@@ -1090,7 +1107,7 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     return out.xpDelta + out.lootReward + levelReward + out.questAccepted + out.questCompleted + out.spellLearned
          + out.questProgress
          + out.damageDealt
-         - out.deathPenalty - out.damageTaken + out.timePenalty;
+         - out.deathPenalty - out.damageTaken + out.timePenalty + shaping;
 }
 
 void NeuralBotInstance::ResetRewardTracking()
@@ -1118,6 +1135,7 @@ void NeuralBotInstance::ResetRewardTracking()
     _prevQGDist = 0.0f;
     _cachedNearestEnemyDist = 0.0f;
     _prevEnemyDist = 0.0f;
+    _prevPotential = 0.0f;
     _prevTargetGuid = ObjectGuid::Empty;
     _questAutoCompleted = 0;
     _stepsWithoutReward = 0;

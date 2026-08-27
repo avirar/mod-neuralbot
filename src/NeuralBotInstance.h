@@ -114,6 +114,7 @@ private:
     float _prevQGDist = 0.0f;
     float _cachedNearestEnemyDist = 0.0f;
     float _prevEnemyDist = 0.0f;
+    float _prevPotential = 0.0f; // PBRS: Φ(s) of previous step (see ComputeReward)
     ObjectGuid _prevTargetGuid;
     float _prevTargetHealth = 0.0f;
 
