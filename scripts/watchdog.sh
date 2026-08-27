@@ -74,6 +74,8 @@ start_trainer() { # $1=model $2=shm-path $3=decay_frac
         SHM_PATH="$2" \
         nohup python3 -u python/train_v3.py > "python/logs/train_auto_$1_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
     disown
+    # Trainers yield to interactive use (games/desktop) under CPU contention only.
+    renice -n 5 -p $! >/dev/null 2>&1 || true
     log "$1 trainer launched (pid $!)"
 }
 
