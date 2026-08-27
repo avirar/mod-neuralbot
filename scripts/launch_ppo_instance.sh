@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch the PPO trainer for a given instance.
 # Usage: scripts/launch_ppo_instance.sh <instance> [model_prefix]
-#   instance 1 -> shm /neuralbot_shm,  model wow_neuralbot_model_v15_dense, decay 0.05 (FAST, long lineage)
+#   instance 1 -> shm /neuralbot_shm,  model wow_neuralbot_model_v15_dense, decay 0.15 (MODERATE probe)
 #   instance 2 -> shm /neuralbot_shm2, model wow_neuralbot_model_i2,       decay 0.25 (slow arm, fresh)
 #   instance 3 -> shm /neuralbot_shm3, model wow_neuralbot_model_i3,       decay 0.05 (FAST arm, warm from i2)
 set -euo pipefail
@@ -13,7 +13,7 @@ source .venv/bin/activate
 case "$INST" in
     2) SHM=/dev/shm/neuralbot_shm2; MODEL="${2:-wow_neuralbot_model_i2}"; DECAY=0.25; DB=acore_characters2 ;;
     3) SHM=/dev/shm/neuralbot_shm3; MODEL="${2:-wow_neuralbot_model_i3}"; DECAY=0.05; DB=acore_characters3 ;;
-    *) SHM=/dev/shm/neuralbot_shm; MODEL="${2:-wow_neuralbot_model_v15_dense}"; DECAY=0.05; DB=acore_characters ;;
+    *) SHM=/dev/shm/neuralbot_shm; MODEL="${2:-wow_neuralbot_model_v15_dense}"; DECAY=0.15; DB=acore_characters ;;
 esac
 
 # resume from newest checkpoint if present

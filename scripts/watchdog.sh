@@ -20,7 +20,7 @@ log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 # name|conf-arg|shm|prefix|chardb|model|decay_frac
 INSTANCES=(
-    "1||/neuralbot_shm|nbot|acore_characters|wow_neuralbot_model_v15_dense|0.05"
+    "1||/neuralbot_shm|nbot|acore_characters|wow_neuralbot_model_v15_dense|0.15"
     "2|../etc/instance2/worldserver.conf|/neuralbot_shm2|xbot|acore_characters2|wow_neuralbot_model_i2|0.25"
     "3|../etc/instance3/worldserver.conf|/neuralbot_shm3|ybot|acore_characters3|wow_neuralbot_model_i3|0.05"
 )
