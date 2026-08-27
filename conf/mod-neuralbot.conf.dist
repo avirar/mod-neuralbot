@@ -13,7 +13,7 @@ NeuralBot.CleanupOnStartup = 0
 # (COMPLETE_QUEST), not have them scaffolded. Reward selection at turn-in is
 # class/spec-aware (see NeuralBotInstance::ChooseQuestReward).
 NeuralBot.AutoQuest = 0
-NeuralBot.BotCount = 400
+NeuralBot.BotCount = 800
 
 # Level-band respawn (DISABLED-by-default? no — ENABLED). When a bot dies or its episode
 # resets and it has out-leveled the starting subzone (level >= 5), respawn it at a

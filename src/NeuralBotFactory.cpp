@@ -138,20 +138,33 @@ uint32 NeuralBotFactory::GetBotCount()
 
 std::string NeuralBotFactory::GenerateBotName(uint32 index)
 {
+    // Names are "Neuralbot" + 1..3 letters (base-26). AzerothCore reserves every name
+    // ending in "GM"/"gm" (ObjectMgr::IsReservedName / IsProfanityName hardcode the
+    // suffix check); Player::LoadFromDB then sets AT_LOGIN_RENAME and the bot can never
+    // spawn, permanently killing that bot slot. Skip any suffix pair equal to "GM".
+    // Capacity: 26 (1 letter) + 675 (2 letters, minus "GM") + 17550 (3 letters) = 18251.
+    constexpr uint32 GM_PAIR = 6 * 26 + 12; // "GM" as a base-26 pair index
+
     if (index < 26)
         return std::string("Neuralbot") + static_cast<char>('A' + index);
 
     uint32 i = index - 26;
 
-    // AzerothCore reserves every name ending in "GM"/"gm" (ObjectMgr::IsReservedName and
-    // IsProfanityName hardcode the suffix check). Player::LoadFromDB then sets
-    // AT_LOGIN_RENAME and the bot can never spawn, permanently killing that bot slot.
-    // Skip the "GM" letter pair entirely by shifting every later pair past it.
-    constexpr uint32 GM_PAIR_INDEX = 6 * 26 + 12; // position of "GM" within AA..ZZ
-    if (i >= GM_PAIR_INDEX)
-        ++i;
+    if (i < 675) // 2-letter names: AA..ZZ minus "GM"
+    {
+        if (i >= GM_PAIR)
+            ++i;
+        return std::string("Neuralbot") + static_cast<char>('A' + i / 26) + static_cast<char>('A' + i % 26);
+    }
 
-    return std::string("Neuralbot") + static_cast<char>('A' + i / 26) + static_cast<char>('A' + i % 26);
+    // 3-letter names: first letter (26) x 675 usable two-letter suffixes.
+    uint32 j = i - 675;
+    uint32 first = j / 675;
+    uint32 suffix = j % 675;
+    if (suffix >= GM_PAIR)
+        ++suffix;
+    return std::string("Neuralbot") + static_cast<char>('A' + first)
+         + static_cast<char>('A' + suffix / 26) + static_cast<char>('A' + suffix % 26);
 }
 
 std::vector<BotCharacterTemplate> NeuralBotFactory::GetBotTemplates()
