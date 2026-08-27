@@ -204,9 +204,10 @@ bool NeuralBotFactory::CreateAccounts()
 {
     uint32 botCount = GetBotCount();
     uint32 numAccounts = (botCount + 9) / 10; // 10 chars per account (WoW limit)
+    std::string prefix = sConfigMgr->GetOption<std::string>("NeuralBot.BotAccountPrefix", "nbot");
     for (uint32 i = 0; i < numAccounts; ++i)
     {
-        std::string name = "nbot" + std::to_string(i);
+        std::string name = prefix + std::to_string(i);
         uint32 existingId = sAccountMgr->GetId(name);
         if (existingId)
         {
@@ -238,7 +239,7 @@ bool NeuralBotFactory::CreateCharacters()
 
         // Determine which account this bot belongs to
         uint32 accountIdx = static_cast<uint32>(i) / 10;
-        std::string accountName = "nbot" + std::to_string(accountIdx);
+        std::string accountName = sConfigMgr->GetOption<std::string>("NeuralBot.BotAccountPrefix", "nbot") + std::to_string(accountIdx);
         uint32 accountId = sAccountMgr->GetId(accountName);
         if (!accountId)
         {

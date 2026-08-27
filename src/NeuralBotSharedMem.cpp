@@ -1,5 +1,6 @@
 #include "NeuralBotSharedMem.h"
 #include "Log.h"
+#include "Config.h"
 
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -18,7 +19,7 @@ NeuralBotSharedMem& NeuralBotSharedMem::instance()
 
 bool NeuralBotSharedMem::Create(uint32_t numBots)
 {
-    _name = "/neuralbot_shm";
+    _name = sConfigMgr->GetOption<std::string>("NeuralBot.ShmName", "/neuralbot_shm");
 
     int fd = shm_open(_name.c_str(), O_CREAT | O_RDWR, 0666);
     if (fd < 0)
