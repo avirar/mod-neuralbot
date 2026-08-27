@@ -147,14 +147,21 @@ sources and rationale in `RL_RESEARCH.md`.
   preserve-characters shipped and working; the stall is algorithmic (constant entropy
   bonus + non-stationarity-induced plasticity loss) — see `RL_RESEARCH.md`.
 - Next: §10 Phase 0 (entropy schedule) is the cheapest test of the diagnosis.
-- **Phase 0 entropy schedule: VERDICT CONFIRMED (2026-08-27).** Fast decay (arm `i3`,
-  warm from i2@60M, 5% window) collapsed policy entropy **3.42 → 1.40 nats** (vs max
-  log41=3.71) the moment `ent_coef` hit 0.0005, while slow-decay arms stayed pinned at
-  3.4–3.5. Kills diverged +8% (i3 0.76 vs i2 0.70) and reward less negative. **The
-  constant entropy bonus was the binding constraint** — removing it lets the policy
-  specialize. Follow-up: i1 (long lineage) switched to fast decay too, so both fast arms
-  now exploit; i2 kept as slow control. §10 Phase 1 (policy architecture) is now
-  unblocked.
+- **Phase 0 entropy schedule: REFINED VERDICT (2026-08-28 overnight).** Fast decay
+  (`ent_coef` 0.01→0.0005 over 5% of run) collapses policy entropy 3.42→~1 nats and
+  **overshoots** — by ~03:00 the fast arms were near-deterministic (H≈0.7–1.1) with
+  kills BELOW the slow arm and `explained_variance` degrading 0.95→0.65 (premature
+  degenerate collapse). A 3-way sweep was run: 0.05 (i3) → degenerate overshoot;
+  0.25 (i2) → gradual specialize (H 3.5→1.6, no overshoot); 0.15 (i1) → re-explored
+  then re-specialized (H 1.1→3.1→2.7). **But kills converged to ~0.03–0.05 for ALL
+  arms regardless of decay** — so entropy is NOT the binding constraint on behavior.
+- **ROOT CAUSE (2026-08-28): the policy never learns to attack.** Action distribution
+  (per ~1100-step ep): NOOP=131, turnL=36, turnR=30, target_enemy=38, target_corpse=35
+  — `ATTACK_START`(28) occurs only at ~random rate. Bots target enemies but don't
+  follow through → no damage → no kills → ~0 XP → stuck at level 1 (i2/i3), no
+  level-band respawn, no quests. The target→attack→kill credit-assignment chain is the
+  real bottleneck → §10 Phase 1 (entity-attention policy) + reward shaping for
+  targeting/attacking are the next steps.
 - **Throughput scaling (2026-08-27)**: rndbots disabled (freed ~1 core), 800 bots = the
   per-instance sweet spot (1600 is worse), **3 instances (3×800) = ~73k bot-steps/s**
   (26.3k + 24.9k + 22.1k), load ~15/16 (box saturated). All training processes at
