@@ -138,33 +138,52 @@ uint32 NeuralBotFactory::GetBotCount()
 
 std::string NeuralBotFactory::GenerateBotName(uint32 index)
 {
-    // Names are "Neuralbot" + 1..3 letters (base-26). AzerothCore reserves every name
-    // ending in "GM"/"gm" (ObjectMgr::IsReservedName / IsProfanityName hardcode the
-    // suffix check); Player::LoadFromDB then sets AT_LOGIN_RENAME and the bot can never
-    // spawn, permanently killing that bot slot. Skip any suffix pair equal to "GM".
-    // Capacity: 26 (1 letter) + 675 (2 letters, minus "GM") + 17550 (3 letters) = 18251.
-    constexpr uint32 GM_PAIR = 6 * 26 + 12; // "GM" as a base-26 pair index
+    // "Neuralbot" + 1..N base-26 letters, skipping names AzerothCore rejects:
+    //  - names ending in "GM"/"gm" (reserved; ObjectMgr::IsReservedName hardcodes it)
+    //  - names with three consecutive identical letters (case-insensitive;
+    //    ObjectMgr::CheckPlayerName -> CHAR_NAME_THREE_CONSECUTIVE). Note the prefix
+    //    "Neuralbot" ends in 't', so a suffix starting "TT" would make "ttt".
+    auto encode = [](uint32 v, uint8 len) {
+        std::string s(len, 'A');
+        for (int8 k = static_cast<int8>(len) - 1; k >= 0; --k) { s[k] = static_cast<char>('A' + (v % 26)); v /= 26; }
+        return s;
+    };
+    auto isValid = [](std::string const& n) {
+        if (n.size() >= 2) {
+            char a = static_cast<char>(std::tolower(static_cast<unsigned char>(n[n.size() - 2])));
+            char b = static_cast<char>(std::tolower(static_cast<unsigned char>(n[n.size() - 1])));
+            if (a == 'g' && b == 'm')
+                return false;
+        }
+        for (size_t i = 2; i < n.size(); ++i) {
+            char a = static_cast<char>(std::tolower(static_cast<unsigned char>(n[i])));
+            char b = static_cast<char>(std::tolower(static_cast<unsigned char>(n[i - 1])));
+            char c = static_cast<char>(std::tolower(static_cast<unsigned char>(n[i - 2])));
+            if (a == b && b == c)
+                return false;
+        }
+        return true;
+    };
 
-    if (index < 26)
-        return std::string("Neuralbot") + static_cast<char>('A' + index);
-
-    uint32 i = index - 26;
-
-    if (i < 675) // 2-letter names: AA..ZZ minus "GM"
+    // Map `index` to the index-th VALID name by counting valid candidates across
+    // increasing name lengths. Deterministic; capacity ~180k names for 6 letters.
+    uint32 seen = 0;
+    for (uint8 len = 1; len <= 6; ++len)
     {
-        if (i >= GM_PAIR)
-            ++i;
-        return std::string("Neuralbot") + static_cast<char>('A' + i / 26) + static_cast<char>('A' + i % 26);
+        uint32 cap = 1;
+        for (uint8 k = 0; k < len; ++k)
+            cap *= 26;
+        for (uint32 v = 0; v < cap; ++v)
+        {
+            std::string name = "Neuralbot" + encode(v, len);
+            if (!isValid(name))
+                continue;
+            if (seen == index)
+                return name;
+            ++seen;
+        }
     }
-
-    // 3-letter names: first letter (26) x 675 usable two-letter suffixes.
-    uint32 j = i - 675;
-    uint32 first = j / 675;
-    uint32 suffix = j % 675;
-    if (suffix >= GM_PAIR)
-        ++suffix;
-    return std::string("Neuralbot") + static_cast<char>('A' + first)
-         + static_cast<char>('A' + suffix / 26) + static_cast<char>('A' + suffix % 26);
+    return "Neuralbot" + std::to_string(index); // unreachable for sane indices
 }
 
 std::vector<BotCharacterTemplate> NeuralBotFactory::GetBotTemplates()
