@@ -286,7 +286,12 @@ bool NeuralBotFactory::CreateCharacters()
 
         player->setCinematic(2);
         player->SetAtLoginFlag(AT_LOGIN_NONE);
-        player->SaveToDB(true, false);
+        // Synchronous save: the async login queries fired right after this must find the
+        // character committed. SaveToDB's default async CommitTransaction raced the logins
+        // at 800 bots ("Player not found in table characters" + segfault).
+        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+        player->SaveToDB(trans, true, false);
+        CharacterDatabase.DirectCommitTransaction(trans);
 
         sCharacterCache->AddCharacterCacheEntry(player->GetGUID(), accountId,
             player->GetName(), player->getGender(), player->getRace(),
