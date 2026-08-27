@@ -349,11 +349,13 @@ accepted plan and its results:
 - **Desktop coexistence**: all worldservers + trainers run at `nice +5` (watchdog
   re-applies on restart) so games/desktop (nice 0) win under contention; training
   runs full speed when the box is idle.
-- **Entropy schedule (Phase 0)** is a **3-arm A/B**: instance 1 `v15_dense` (long
-  lineage, decay 0.01→0.0005 over 25% of run) vs instance 2 `i2` (fresh dense
-  baseline, same slow decay) vs instance 3 `i3` (**warm-started from i2's 60M
-  checkpoint, FAST decay — 5% of run ≈ 50M steps ≈ 35 min**). Same weights, only the
-  decay speed differs → clean Phase-0 verdict. See `RL_RESEARCH.md`.
+- **Entropy schedule (Phase 0)** is a **3-arm A/B, VERDICT CONFIRMED**: instance 1
+  `v15_dense` (long lineage, **fast** decay 0.05) vs instance 2 `i2` (fresh dense
+  baseline, slow decay 0.25 — kept as control) vs instance 3 `i3` (**fast** decay 0.05,
+  warm from i2@60M). Result: fast decay collapsed i3's policy entropy 3.42→1.40 nats
+  (max log41=3.71) once `ent_coef` hit the floor, while slow arms stayed pinned ~3.5;
+  kills +8% (0.76 vs 0.70). **The constant entropy bonus was the binding constraint.**
+  i1 switched to fast decay too. See `RL_RESEARCH.md` + ROADMAP.
 
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills

@@ -7,6 +7,15 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 ## [Unreleased]
 
 ### Changed
+- **Phase-0 entropy-schedule verdict CONFIRMED.** The 3-arm A/B (fast decay `i3` vs slow
+  `i2` vs long-lineage `v15_dense`) showed the constant entropy bonus was pinning the
+  policy at max entropy: fast decay (`ent_coef` 0.01→0.0005 over 5% of run) collapsed
+  i3's policy entropy 3.42→1.40 nats (max log41=3.71) while slow arms stayed ~3.5, with
+  kills +8% (0.76 vs 0.70). `v15_dense` (i1) switched to fast decay; i2 kept as slow
+  control. §10 Phase 1 (policy architecture) now unblocked.
+- **Worldserver log verbosity lowered** (`Logger.root` 6→3, `Logger.server` 4→3 in all
+  3 instance configs). Trace-level logging was writing ~5 GB/min across 3 instances
+  (single shared `Server.log` hit 12 GB; disk was heading toward full).
 - **Curriculum teleport disabled** (`NeuralBot.Curriculum = 0`). The teleport staged
   bots next to the nearest HOSTILE within 120 yd, but starting-zone mobs are mostly
   neutral, so it dumped level-1 bots onto level-5+ mobs that killed them in ~10 steps —

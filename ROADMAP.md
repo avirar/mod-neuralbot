@@ -147,15 +147,14 @@ sources and rationale in `RL_RESEARCH.md`.
   preserve-characters shipped and working; the stall is algorithmic (constant entropy
   bonus + non-stationarity-induced plasticity loss) — see `RL_RESEARCH.md`.
 - Next: §10 Phase 0 (entropy schedule) is the cheapest test of the diagnosis.
-- **Phase 0 entropy schedule: RUNNING as a 3-arm A/B (2026-08-27).** Arm A `v15_dense`
-  (long lineage, decay 0.01→0.0005 over 25% of run, instance 1); arm B `i2` (fresh
-  dense baseline, same slow decay, instance 2); arm C `i3` (**warm-started from i2's
-  60M checkpoint, FAST decay — 5% window ≈ 50M steps**, instance 3). Arms B/C share
-  weights and differ only in decay speed → first verdict expected within ~1 h of C's
-  launch (~14:25). Decision rule: if C's reward/kill-rate diverges from B as
-  `ent_coef→0.0005`, entropy was the binding constraint (proceed to longer slow-decay
-  runs); if B/C track identically, entropy was NOT binding → skip to §10 Phase 1
-  (policy architecture).
+- **Phase 0 entropy schedule: VERDICT CONFIRMED (2026-08-27).** Fast decay (arm `i3`,
+  warm from i2@60M, 5% window) collapsed policy entropy **3.42 → 1.40 nats** (vs max
+  log41=3.71) the moment `ent_coef` hit 0.0005, while slow-decay arms stayed pinned at
+  3.4–3.5. Kills diverged +8% (i3 0.76 vs i2 0.70) and reward less negative. **The
+  constant entropy bonus was the binding constraint** — removing it lets the policy
+  specialize. Follow-up: i1 (long lineage) switched to fast decay too, so both fast arms
+  now exploit; i2 kept as slow control. §10 Phase 1 (policy architecture) is now
+  unblocked.
 - **Throughput scaling (2026-08-27)**: rndbots disabled (freed ~1 core), 800 bots = the
   per-instance sweet spot (1600 is worse), **3 instances (3×800) = ~73k bot-steps/s**
   (26.3k + 24.9k + 22.1k), load ~15/16 (box saturated). All training processes at
