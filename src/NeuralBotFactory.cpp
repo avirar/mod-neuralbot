@@ -315,9 +315,11 @@ void NeuralBotFactory::CleanupBots()
 {
     LOG_INFO("module.neuralbot", "Cleaning up all NeuralBot characters and accounts...");
 
-    // Find bot account IDs
+    // Find bot account IDs (prefix from config — instances must use disjoint prefixes)
+    std::string prefix = sConfigMgr->GetOption<std::string>("NeuralBot.BotAccountPrefix", "nbot");
+    std::string pattern = "^" + prefix + "[0-9]+$";
     QueryResult accounts = LoginDatabase.Query(
-        "SELECT id, username FROM account WHERE username REGEXP '^nbot[0-9]+$'");
+        "SELECT id, username FROM account WHERE username REGEXP '" + pattern + "'");
     if (!accounts)
     {
         LOG_INFO("module.neuralbot", "No bot accounts found to clean.");
