@@ -150,12 +150,14 @@ pass the prefix explicitly (e.g. `start_training.sh wow_neuralbot_model_v14_bc`)
   default `control-group` made systemd SIGTERM the worldserver/trainer every time the
   watchdog script exited (clean `Halting process…` ~72 s after each boot). Unit tracked
   at `scripts/neuralbot-watchdog.service`; install to `~/.config/systemd/user/`.
-- **Storage:** overflow (old logs, generated weights/checkpoints) goes to `~/NAS/temp/neuralbot`.
-  Automated every 2h by `scripts/archive_to_nas.sh` (systemd user timer
+- **Storage:** two tiers. **Overflow** (old logs, generated weights/checkpoints) goes to
+  `~/NAS/temp/neuralbot` (off-box); **worldserver log spill** (`Server.log` +
+  `ws*.out` stdout) goes to the local SSD tier `/media/storage/neuralbot` (SATA SSD,
+  ~870 GiB free). Automated every 2h by `scripts/archive_to_nas.sh` (systemd user timer
   `neuralbot-archive.timer`, `OnCalendar=*-*-* 00/2:00:00`): episodes rows >2 d old,
-  checkpoints beyond newest 5, old logs, `Server.log` >500 MB (~3.6 GB/hour at Debug
-  level — the 2h cadence keeps the root partition from filling). Run it manually after
-  big housekeeping.
+  checkpoints beyond newest 5, old logs, `Server.log` >500 MB, and `ws*.out` capped by
+  **block usage** (they regrow as sparse files after truncate, so `du` not `ls` is the
+  real disk signal). Run it manually after big housekeeping.
 - **DBC data:** `SkillLineAbility.dbc` (spell → skill-line auto-learn, `AcquireMethod`,
   `RaceMask`/`ClassMask`, `MinSkillLineRank`) lives in `env/dist/bin/dbc/`. Queryable via
   `~/GIT/acore-data` (MCP server; set `ACORE_DBC_PATH` and `ACORE_FORMAT_FILE`).
