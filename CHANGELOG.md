@@ -34,11 +34,18 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
   `NEURALBOT_ENT_FINAL`, `NEURALBOT_ENT_DECAY_FRAC`.
 - **SOAP console helper** (`scripts/soap.sh`) + `PI` admin account (gmlevel 3) for
   worldserver console interaction over SOAP.
-- **Multi-instance scaling.** `NeuralBot.ShmName`/`BotAccountPrefix`/`BotCharacterName`
-  configurable; per-instance module values via `AC_*` env vars (module config dir is
-  compile-time fixed). Launchers `launch_instance2.sh` + `launch_ppo_instance.sh`.
-  Benchmark: 400+100 rndbots 21.5k → rndbots-off 24.2k → 800 bots 28.8k → 1600 bots
-  **18.6k (worse)** → **2×800 instances ~52k bot-steps/s** (load ~13.5/16, GPU 38%).
+- **Multi-instance scaling to 3 instances.** `NeuralBot.ShmName`/
+  `BotAccountPrefix`/`BotCharacterName` configurable; per-instance module values via
+  `AC_*` env vars (module config dir is compile-time fixed). Launchers
+  `launch_instance2.sh` + `launch_ppo_instance.sh <1|2|3>`. Benchmark: 400+100
+  rndbots 21.5k → rndbots-off 24.2k → 800 bots 28.8k → 1600 bots **18.6k (worse)** →
+  **3×800 instances ~73k bot-steps/s** (load ~15/16, box saturated).
+- **Per-instance watchdog.** `scripts/watchdog.sh` now maps each instance to its
+  conf/shm/prefix/charDB/model/decay-frac, resumes the correct checkpoint, preserves
+  each arm's `ENT_DECAY_FRAC` on restart, and identifies trainers via
+  `/proc/<pid>/environ` `NEURALBOT_MODEL` (no more cross-instance restarts).
+- **Desktop coexistence.** All worldservers + trainers at `nice +5` (watchdog
+  re-applies) — games/desktop win under CPU contention; training full-speed when idle.
 
 ### Fixed
 - **Bot characters are now preserved across restarts.** The factory force-recreated every
@@ -48,8 +55,9 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
   config option; the live config had it set to 1 and silently wiped all bots once).
 - **Multi-instance support** (`NeuralBot.ShmName`, `NeuralBot.BotAccountPrefix`,
   `NeuralBot.BotCharacterName`). Character naming now skips names AzerothCore rejects
-  (GM suffix + 3-consecutive-letters). Two instances now run ~52k bot-steps/sec combined
-  (vs 28.8k single). See AGENTS.md "Multi-instance scaling".
+  (GM suffix + 3-consecutive-letters). Three instances now run ~73k bot-steps/sec
+  combined (vs 28.8k single) as a 3-arm entropy-decay A/B (v15_dense / i2 / i3-fast).
+  See AGENTS.md "Multi-instance scaling".
 
 ## [0.7.0] — 2026-08-23
 

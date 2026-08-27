@@ -310,7 +310,8 @@ accepted plan and its results:
 ### Multi-instance scaling (2026-08-27)
 - **Per-instance sweet spot is ~800 bots** — 1600 bots/instance is *worse* (18.6k vs
   28.8k fps; the map-update threads saturate, cycle went 28ms→86ms superlinearly).
-- **Three instances now run** (~70k bot-steps/sec combined, load ~14/16 cores, GPU ~50%):
+- **Three instances now run** (~73k bot-steps/sec combined, load ~15/16 cores, box
+  saturated; GPU has headroom):
   - Instance 1: `env/dist/etc/worldserver.conf` — port 8085, SOAP 7878, RealmID 1,
     shm `/neuralbot_shm`, accounts `nbot*`, chars `Neuralbot*` in `acore_characters`.
     Trainer `v15_dense` — entropy-schedule arm A (decay 0.01→0.0005 over 25% of run).
@@ -343,10 +344,16 @@ accepted plan and its results:
 - **Throughput benchmark** (rollout_fps = bot-steps/s): 400 bots + 100 rndbots = 21.5k
   (worldserver 238% CPU); rndbots off = 24.2k (159%); 800 bots = 28.8k (129%);
   1600 bots = 18.6k (**worse** — map-update threads saturate, cycle 28→86ms
-  superlinear). Two instances (2×800) = ~52k combined, load ~13.5/16, GPU ~38%.
-- **Entropy schedule (Phase 0)** is the active experiment on instance 1 (`v15_dense`,
-  `ent_coef` 0.01→0.0005 over 25% of the run); instance 2 (`i2`) is a fresh dense-reward
-  baseline. See `RL_RESEARCH.md`.
+  superlinear). Three instances (3×800) = **~73k combined** (26.3k + 24.9k + 22.1k),
+  load ~15/16 — box saturated; GPU still has headroom (~38% avg).
+- **Desktop coexistence**: all worldservers + trainers run at `nice +5` (watchdog
+  re-applies on restart) so games/desktop (nice 0) win under contention; training
+  runs full speed when the box is idle.
+- **Entropy schedule (Phase 0)** is a **3-arm A/B**: instance 1 `v15_dense` (long
+  lineage, decay 0.01→0.0005 over 25% of run) vs instance 2 `i2` (fresh dense
+  baseline, same slow decay) vs instance 3 `i3` (**warm-started from i2's 60M
+  checkpoint, FAST decay — 5% of run ≈ 50M steps ≈ 35 min**). Same weights, only the
+  decay speed differs → clean Phase-0 verdict. See `RL_RESEARCH.md`.
 
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills
