@@ -79,6 +79,11 @@ void NeuralBotMgr::SpawnAndLoginBots()
         return;
     }
 
+    // Drain the async SaveToDB queue before firing the async login queries — otherwise
+    // a login can race a save and fail with "no Player" (seen at 800 bots: 2/800 lost).
+    while (CharacterDatabase.QueueSize())
+        std::this_thread::sleep_for(1s);
+
     auto created = NeuralBotFactory::GetCreatedCharacters();
 
     for (auto const& info : created)
