@@ -295,6 +295,29 @@ accepted plan and its results:
   understood to be **algorithmic/architectural**, not reward or environment.
 - **Level-band respawn + preserve-characters shipped** (see CHANGELOG [Unreleased]).
 
+### Multi-instance scaling (2026-08-27)
+- **Per-instance sweet spot is ~800 bots** — 1600 bots/instance is *worse* (18.6k vs
+  28.8k fps; the map-update threads saturate, cycle went 28ms→86ms superlinearly).
+- **Two instances now run** (~52k bot-steps/sec combined, load ~13/16 cores, GPU ~38%):
+  - Instance 1: `env/dist/etc/worldserver.conf` — port 8085, SOAP 7878, RealmID 1,
+    shm `/neuralbot_shm`, accounts `nbot*`, chars `Neuralbot*` in `acore_characters`.
+  - Instance 2: `env/dist/etc/instance2/worldserver.conf` — port 8086, SOAP 7879,
+    RealmID 2, shm `/neuralbot_shm2`, accounts `xbot*`, chars `Xbot*` in
+    `acore_characters2` (separate character DB — cloned by the DB updater when the
+    DB is empty; `Updates.AutoSetup=1`).
+- **Module config dir is compile-time fixed** (`_CONF_DIR`), so `-c` does NOT change it —
+  per-instance module values (ShmName, BotAccountPrefix, BotCharacterName) must be set
+  via **AC_* env vars** (e.g. `NeuralBot.ShmName` → `AC_NEURAL_BOT_SHM_NAME`). See
+  `Config::IniKeyToEnvVarKey`. Launchers: `scripts/launch_instance2.sh` +
+  `scripts/launch_ppo_instance.sh`.
+- **Gotchas found**: (1) character name + account prefix must be disjoint per instance
+  (else both reuse the same chars); (2) `CleanupBots` regex must use the configured
+  prefix; (3) each instance needs its own character DB (a shared one collides);
+  (4) `Cluster.Enabled = 0` must be set or the cluster feature binds a port and
+  crashes the second instance.
+- **Third instance**: the 5700X/128GB box (no GPU) can host more once this 16-core box
+  is full (~79% load now).
+
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills
   0.01/ep.

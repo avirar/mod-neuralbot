@@ -35,6 +35,10 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
   natural progression. Existing characters are now reused; `NeuralBot.CleanupOnStartup=1`
   calls `CleanupBots()` for an explicit fresh slate (also wired the previously-dead
   config option; the live config had it set to 1 and silently wiped all bots once).
+- **Multi-instance support** (`NeuralBot.ShmName`, `NeuralBot.BotAccountPrefix`,
+  `NeuralBot.BotCharacterName`). Character naming now skips names AzerothCore rejects
+  (GM suffix + 3-consecutive-letters). Two instances now run ~52k bot-steps/sec combined
+  (vs 28.8k single). See AGENTS.md "Multi-instance scaling".
 
 ## [0.7.0] — 2026-08-23
 
