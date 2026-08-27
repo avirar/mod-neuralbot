@@ -64,7 +64,19 @@ NEURALBOT_TIMESTEPS=20000000 python3 python/train_v3.py
 | `archive_bc_demos.sh [--force]` | Move demos.bin to NAS (refuses while recorder is live unless `--force`) |
 | `archive_to_nas.sh` | Daily NAS archiver (episodes, old checkpoints, logs, `Server.log`) |
 | `launch_trainer.sh <prefix>` | Trainer-only detached launch (assumes worldserver + bots up) |
+| `launch_instance2.sh` | Launch 2nd worldserver (shm2, xbot accounts, acore_characters2) |
+| `launch_ppo_instance.sh <1\|2>` | Launch/resume the PPO trainer for instance 1 or 2 |
+| `soap.sh "<command>"` | Send a console command via SOAP (see below) |
 | `sync_upstream.sh` | Weekly upstream sync (fetch + merge + push) |
+
+### SOAP console access
+
+`scripts/soap.sh "server info"` runs a worldserver console command over SOAP (port 7878
+instance 1, 7879 instance 2). Uses the `PI` admin account (gmlevel 3) — creds are in the
+script (`NEURALBOT_SOAP_USER/PASS`, overridable via env). Other GM accounts:
+`OPENCODE`, `NEURALBOT` (passwords unknown — reset via DB `account_access` + SRP if needed;
+MySQL root creds are `root`/user-provided). `server info` reports the world update diff
+(mean/median/p95) — useful for tick-rate checks.
 
 ### Restart procedure (use the scripts — do NOT do it manually)
 
@@ -317,6 +329,13 @@ accepted plan and its results:
   crashes the second instance.
 - **Third instance**: the 5700X/128GB box (no GPU) can host more once this 16-core box
   is full (~79% load now).
+- **Throughput benchmark** (rollout_fps = bot-steps/s): 400 bots + 100 rndbots = 21.5k
+  (worldserver 238% CPU); rndbots off = 24.2k (159%); 800 bots = 28.8k (129%);
+  1600 bots = 18.6k (**worse** — map-update threads saturate, cycle 28→86ms
+  superlinear). Two instances (2×800) = ~52k combined, load ~13.5/16, GPU ~38%.
+- **Entropy schedule (Phase 0)** is the active experiment on instance 1 (`v15_dense`,
+  `ent_coef` 0.01→0.0005 over 25% of the run); instance 2 (`i2`) is a fresh dense-reward
+  baseline. See `RL_RESEARCH.md`.
 
 Training runs:
 - v4 = 16-action baseline (15.5M steps, checkpoints kept) — reward flat at ~0, kills

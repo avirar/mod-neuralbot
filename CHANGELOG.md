@@ -28,6 +28,17 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
   faction-appropriate quest hub matching its level band (1-4 subzone, 5-9 main hub,
   10-19 next-zone hub) using safe graveyard coordinates from `game_graveyard`. Fixes the
   gray-mob XP collapse (bots level 5-8 stuck in Northshire fighting level 1-3 mobs).
+- **Entropy schedule (Phase 0 of `RL_RESEARCH.md`).** `EntropyScheduleCallback` decays
+  `ent_coef` 0.01→`NEURALBOT_ENT_FINAL` (0.0005) over `NEURALBOT_ENT_DECAY_FRAC` of the
+  run — a constant entropy bonus was pinning the policy near max entropy. Knobs:
+  `NEURALBOT_ENT_FINAL`, `NEURALBOT_ENT_DECAY_FRAC`.
+- **SOAP console helper** (`scripts/soap.sh`) + `PI` admin account (gmlevel 3) for
+  worldserver console interaction over SOAP.
+- **Multi-instance scaling.** `NeuralBot.ShmName`/`BotAccountPrefix`/`BotCharacterName`
+  configurable; per-instance module values via `AC_*` env vars (module config dir is
+  compile-time fixed). Launchers `launch_instance2.sh` + `launch_ppo_instance.sh`.
+  Benchmark: 400+100 rndbots 21.5k → rndbots-off 24.2k → 800 bots 28.8k → 1600 bots
+  **18.6k (worse)** → **2×800 instances ~52k bot-steps/s** (load ~13.5/16, GPU 38%).
 
 ### Fixed
 - **Bot characters are now preserved across restarts.** The factory force-recreated every
