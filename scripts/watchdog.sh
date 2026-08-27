@@ -1,62 +1,80 @@
 #!/usr/bin/env bash
-# NeuralBot watchdog: keeps training alive unattended (multi-day runs).
-# - worldserver dead            -> restart it, wait for 400 bots
-# - trainer dead >5 min         -> restart it, resuming newest v5 checkpoint
-# - maintenance flag set        -> do nothing (agent/user is working on the stack)
+# NeuralBot watchdog: keeps ALL training instances alive unattended (multi-day runs).
+# Per instance: worldserver dead -> restart it; trainer dead >5 min -> restart it,
+# resuming that instance's newest checkpoint. Maintenance flag -> do nothing.
 # Run under the systemd user service neuralbot-watchdog.service (Restart=always).
+#
+# Instance layout (see AGENTS.md "Multi-instance scaling"):
+#   1: default conf,  shm /neuralbot_shm,  nbot/Neuralbot, acore_characters,  model v15_dense (slow decay 0.25)
+#   2: instance2 conf, shm /neuralbot_shm2, xbot/Xbot,      acore_characters2, model i2       (slow decay 0.25)
+#   3: instance3 conf, shm /neuralbot_shm3, ybot/Ybot,      acore_characters3, model i3       (FAST decay 0.05)
 set -u
 
 MODULE_DIR="/home/luke/GIT/azerothcore-wotlk/modules/mod-neuralbot"
 BIN_DIR="/home/luke/GIT/azerothcore-wotlk/env/dist/bin"
 FLAG="$MODULE_DIR/.maintenance"
-MODEL_PREFIX="wow_neuralbot_model_v15_dense"
 LOG="$MODULE_DIR/python/logs/watchdog.log"
-DB="mysql -u acore -pabc -h 127.0.0.1 -N -e"
+VENV="$MODULE_DIR/.venv/bin/activate"
 
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
-online_bots() {
-    $DB "SELECT COUNT(*) FROM acore_characters.characters c JOIN acore_auth.account a ON c.account=a.id WHERE a.username REGEXP '^nbot[0-9]+$' AND c.online=1;" 2>/dev/null
+# name|conf-arg|shm|prefix|chardb|model|decay_frac
+INSTANCES=(
+    "1||/neuralbot_shm|nbot|acore_characters|wow_neuralbot_model_v15_dense|0.25"
+    "2|../etc/instance2/worldserver.conf|/neuralbot_shm2|xbot|acore_characters2|wow_neuralbot_model_i2|0.25"
+    "3|../etc/instance3/worldserver.conf|/neuralbot_shm3|ybot|acore_characters3|wow_neuralbot_model_i3|0.05"
+)
+
+online_bots() { # $1=prefix $2=chardb
+    mysql -u acore -pabc -h 127.0.0.1 -N -e "SELECT COUNT(*) FROM $2.characters c JOIN acore_auth.account a ON c.account=a.id WHERE a.username REGEXP '^$1[0-9]+$' AND c.online=1;" 2>/dev/null
 }
 
-trainer_alive() { pgrep -f "[t]rain_v3.py" > /dev/null; }
+worldserver_pid() { # $1=conf-arg (empty = instance 1, no -c)
+    if [ -n "$1" ]; then pgrep -f "worldserver -c $1" | head -1
+    else pgrep -x worldserver | while read -r p; do grep -aq "instance" /proc/$p/cmdline 2>/dev/null || { echo "$p"; break; }; done
+    fi
+}
 
-start_worldserver() {
-    log "starting worldserver"
-    cd "$BIN_DIR"
-    setsid nohup bash -c 'exec tail -f /dev/null | ./worldserver' >> ws_console.out 2>&1 < /dev/null &
-    for i in $(seq 1 60); do
-        sleep 5
-        N=$(online_bots)
-        if [ "${N:-0}" = "400" ]; then log "worldserver up, 400 bots (${i}x5s)"; return 0; fi
-        pgrep -x worldserver > /dev/null || { log "worldserver exited during startup"; return 1; }
+trainer_pid_for_model() { # $1=model
+    for p in $(pgrep -f "[t]rain_v3.py"); do
+        if tr '\0' '\n' < /proc/$p/environ 2>/dev/null | grep -q "^NEURALBOT_MODEL=$1$"; then echo "$p"; return; fi
     done
-    log "worldserver up but bots=${N:-0} after 300s"
-    return 0
 }
 
-start_trainer() {
-    # Resume from the newest checkpoint if one exists
-    local newest
-    newest=$(ls -1t "$MODULE_DIR"/${MODEL_PREFIX}*_steps.zip 2>/dev/null | head -1)
-    if [ -n "$newest" ]; then
-        cp "$newest" "$MODULE_DIR/${MODEL_PREFIX}.zip"
-        log "resuming trainer from $newest"
+start_worldserver() { # $1=conf-arg $2=prefix $3=shmname-env
+    log "instance $2: starting worldserver"
+    cd "$BIN_DIR"
+    if [ -n "$1" ]; then
+        # shellcheck disable=SC2086
+        $3 nohup ./worldserver -c "$1" > "ws_$2.out" 2>&1 &
     else
-        rm -f "$MODULE_DIR/${MODEL_PREFIX}.zip"
-        log "starting fresh trainer (no checkpoint)"
+        setsid nohup bash -c 'exec tail -f /dev/null | ./worldserver' >> ws_console.out 2>&1 < /dev/null &
+    fi
+}
+
+start_trainer() { # $1=model $2=shm-path $3=decay_frac
+    local newest
+    newest=$(ls -1t "$MODULE_DIR"/$1*_steps.zip 2>/dev/null | head -1)
+    if [ -n "$newest" ]; then
+        cp "$newest" "$MODULE_DIR/$1.zip"
+        log "resuming $1 from $newest"
+    else
+        rm -f "$MODULE_DIR/$1.zip"
+        log "starting fresh trainer $1 (no checkpoint)"
     fi
     cd "$MODULE_DIR"
-    source .venv/bin/activate
-    # Hyperparameters track the active experiment. NEURALBOT_KL=0 disables the KL
-    # guard (it was pinning LR at its 1e-5 floor; see train_v3.py). All three can be
-    # overridden via the systemd service environment.
-    NEURALBOT_MODEL="$MODEL_PREFIX" NEURALBOT_TIMESTEPS=1000000000 \
-        NEURALBOT_LR="${NEURALBOT_LR:-1.5e-4}" NEURALBOT_ENT="${NEURALBOT_ENT:-0.01}" NEURALBOT_ENT_FINAL="${NEURALBOT_ENT_FINAL:-0.0005}" NEURALBOT_ENT_DECAY_FRAC="${NEURALBOT_ENT_DECAY_FRAC:-1.0}" NEURALBOT_KL="${NEURALBOT_KL:-0}" NEURALBOT_NUM_BOTS="${NEURALBOT_NUM_BOTS:-800}" \
+    source "$VENV"
+    # Hyperparameters track the active experiments (KL guard off: see train_v3.py).
+    NEURALBOT_MODEL="$1" NEURALBOT_TIMESTEPS=1000000000 \
+        NEURALBOT_LR="${NEURALBOT_LR:-1.5e-4}" NEURALBOT_ENT="${NEURALBOT_ENT:-0.01}" \
+        NEURALBOT_ENT_FINAL="${NEURALBOT_ENT_FINAL:-0.0005}" NEURALBOT_ENT_DECAY_FRAC="$3" \
+        NEURALBOT_KL="${NEURALBOT_KL:-0}" NEURALBOT_NUM_BOTS="${NEURALBOT_NUM_BOTS:-800}" \
         NEURALBOT_REWARD_MODE="${NEURALBOT_REWARD_MODE:-symlog}" \
-        nohup python3 -u python/train_v3.py > "python/logs/train_auto_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
+        NEURALBOT_BATCH_SIZE=4096 NEURALBOT_EPOCHS=5 NEURALBOT_NSTEPS=1024 \
+        SHM_PATH="$2" \
+        nohup python3 -u python/train_v3.py > "python/logs/train_auto_$1_$(date +%Y%m%d_%H%M%S).log" 2>&1 &
     disown
-    log "trainer launched (pid $!)"
+    log "$1 trainer launched (pid $!)"
 }
 
 mkdir -p "$MODULE_DIR/python/logs"
@@ -67,31 +85,38 @@ if [ -e "$FLAG" ]; then
     exit 0
 fi
 
-# worldserver health
-if ! pgrep -x worldserver > /dev/null; then
-    log "worldserver DOWN"
-    start_worldserver
-    sleep 10
-fi
+for spec in "${INSTANCES[@]}"; do
+    IFS='|' read -r ID CONF SHM PREFIX CHARDB MODEL DECAY <<< "$spec"
 
-# trainer health (5-minute grace via flag file timestamp)
-if ! trainer_alive; then
-    if [ ! -e /tmp/neuralbot_trainer_died ]; then
-        touch /tmp/neuralbot_trainer_died
-        log "trainer not running — grace period starts"
-        exit 0
+    if [ -z "$(worldserver_pid "$CONF")" ]; then
+        log "instance $ID: worldserver DOWN"
+        case "$ID" in
+            2) ENVV='AC_NEURAL_BOT_SHM_NAME=/neuralbot_shm2 AC_NEURAL_BOT_BOT_CHARACTER_NAME=Xbot AC_NEURAL_BOT_BOT_ACCOUNT_PREFIX=xbot' ;;
+            3) ENVV='AC_NEURAL_BOT_SHM_NAME=/neuralbot_shm3 AC_NEURAL_BOT_BOT_CHARACTER_NAME=Ybot AC_NEURAL_BOT_BOT_ACCOUNT_PREFIX=ybot' ;;
+            *) ENVV='' ;;
+        esac
+        start_worldserver "$CONF" "$ID" "$ENVV"
     fi
-    AGE=$(( $(date +%s) - $(stat -c %Y /tmp/neuralbot_trainer_died) ))
-    if [ "$AGE" -ge 300 ]; then
-        rm -f /tmp/neuralbot_trainer_died
-        N=$(online_bots)
-        if [ "${N:-0}" -ge 390 ]; then
-            start_trainer
-        else
-            log "bots=${N:-0} — worldserver unhealthy, not starting trainer"
+
+    if [ -z "$(trainer_pid_for_model "$MODEL")" ]; then
+        GRACE="/tmp/neuralbot_trainer_died_$MODEL"
+        if [ ! -e "$GRACE" ]; then
+            touch "$GRACE"
+            log "instance $ID: trainer $MODEL not running — grace period starts"
+            continue
         fi
+        AGE=$(( $(date +%s) - $(stat -c %Y "$GRACE") ))
+        if [ "$AGE" -ge 300 ]; then
+            rm -f "$GRACE"
+            N=$(online_bots "$PREFIX" "$CHARDB")
+            if [ "${N:-0}" -ge 790 ]; then
+                start_trainer "$MODEL" "/dev/shm$SHM" "$DECAY"
+            else
+                log "instance $ID: bots=${N:-0} — worldserver unhealthy, not starting trainer"
+            fi
+        fi
+    else
+        rm -f "/tmp/neuralbot_trainer_died_$MODEL"
     fi
-else
-    rm -f /tmp/neuralbot_trainer_died
-    log "ok: worldserver up, trainer running (pid $(pgrep -f '[t]rain_v3.py' | head -1))"
-fi
+done
+log "ok: $(pgrep -c -x worldserver) worldservers, $(pgrep -f '[t]rain_v3.py' | wc -l) trainers detected"

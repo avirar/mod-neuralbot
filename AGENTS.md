@@ -310,13 +310,20 @@ accepted plan and its results:
 ### Multi-instance scaling (2026-08-27)
 - **Per-instance sweet spot is ~800 bots** — 1600 bots/instance is *worse* (18.6k vs
   28.8k fps; the map-update threads saturate, cycle went 28ms→86ms superlinearly).
-- **Two instances now run** (~52k bot-steps/sec combined, load ~13/16 cores, GPU ~38%):
+- **Three instances now run** (~70k bot-steps/sec combined, load ~14/16 cores, GPU ~50%):
   - Instance 1: `env/dist/etc/worldserver.conf` — port 8085, SOAP 7878, RealmID 1,
     shm `/neuralbot_shm`, accounts `nbot*`, chars `Neuralbot*` in `acore_characters`.
+    Trainer `v15_dense` — entropy-schedule arm A (decay 0.01→0.0005 over 25% of run).
   - Instance 2: `env/dist/etc/instance2/worldserver.conf` — port 8086, SOAP 7879,
     RealmID 2, shm `/neuralbot_shm2`, accounts `xbot*`, chars `Xbot*` in
     `acore_characters2` (separate character DB — cloned by the DB updater when the
-    DB is empty; `Updates.AutoSetup=1`).
+    DB is empty; `Updates.AutoSetup=1`). Trainer `i2` — fresh dense baseline, same
+    slow decay (arm B).
+  - Instance 3: `env/dist/etc/instance3/worldserver.conf` — port 8087, SOAP 7880,
+    RealmID 3, shm `/neuralbot_shm3`, accounts `ybot*`, chars `Ybot*` in
+    `acore_characters3`. Trainer `i3` — **FAST entropy-decay arm (decay window 5% of
+    run, ≈50M steps), warm-started from i2's 60M checkpoint** — same weights, faster
+    schedule, so Phase 0's verdict arrives in ~35 min instead of hours.
 - **Module config dir is compile-time fixed** (`_CONF_DIR`), so `-c` does NOT change it —
   per-instance module values (ShmName, BotAccountPrefix, BotCharacterName) must be set
   via **AC_* env vars** (e.g. `NeuralBot.ShmName` → `AC_NEURAL_BOT_SHM_NAME`). See
@@ -327,8 +334,12 @@ accepted plan and its results:
   prefix; (3) each instance needs its own character DB (a shared one collides);
   (4) `Cluster.Enabled = 0` must be set or the cluster feature binds a port and
   crashes the second instance.
-- **Third instance**: the 5700X/128GB box (no GPU) can host more once this 16-core box
-  is full (~79% load now).
+- **Third instance**: now RUNNING (instance 3 = fast-decay arm). More capacity goes to
+  the 5700X/128GB box (no GPU) once this 16-core box is saturated (~14/16 load now).
+- **Watchdog is per-instance** (`scripts/watchdog.sh`): maps each instance to its
+  conf/shm/prefix/charDB/model/decay; restarts worldserver + trainer per instance
+  (trainer identity via `/proc/<pid>/environ` `NEURALBOT_MODEL`), resumes the right
+  checkpoint, and preserves each arm's `ENT_DECAY_FRAC` on restart.
 - **Throughput benchmark** (rollout_fps = bot-steps/s): 400 bots + 100 rndbots = 21.5k
   (worldserver 238% CPU); rndbots off = 24.2k (159%); 800 bots = 28.8k (129%);
   1600 bots = 18.6k (**worse** — map-update threads saturate, cycle 28→86ms
