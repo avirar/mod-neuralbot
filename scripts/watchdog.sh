@@ -50,6 +50,8 @@ start_worldserver() { # $1=conf-arg $2=prefix $3=shmname-env
     else
         setsid nohup bash -c 'exec tail -f /dev/null | ./worldserver' >> ws_console.out 2>&1 < /dev/null &
     fi
+    # Yield to interactive use (games/desktop) under CPU contention only.
+    renice -n 5 -p $! >/dev/null 2>&1 || true
 }
 
 start_trainer() { # $1=model $2=shm-path $3=decay_frac
