@@ -118,6 +118,7 @@ private:
     bool _didAttackThisStep = false;
     ObjectGuid _lastAttackRewardedGuid;
     ObjectGuid _moveTargetGuid;
+    uint32 _lastMovePathMs = 0;
     ObjectGuid _prevTargetGuid;
     float _prevTargetHealth = 0.0f;
 

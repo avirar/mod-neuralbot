@@ -1154,6 +1154,7 @@ void NeuralBotInstance::ResetRewardTracking()
     _didAttackThisStep = false;
     _lastAttackRewardedGuid.Clear();
     _moveTargetGuid.Clear();
+    _lastMovePathMs = 0;
     _prevTargetGuid = ObjectGuid::Empty;
     _questAutoCompleted = 0;
     _stepsWithoutReward = 0;
@@ -1404,12 +1405,16 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
             // stuck mass a single-action path into the loop. Remove with §3 cleanup.
             if (bot->GetDistance(target) > 4.5f && target->IsAlive())
             {
-                // Only (re)path when the target changed. Re-issuing Clear+MovePoint
-                // every step (the policy re-picks ATTACK_START ~1.5x/step) kept
-                // resetting the approach so bots never reached the mob to swing.
-                if (_moveTargetGuid != target->GetGUID())
+                // Throttle re-pathing: re-issue MovePoint only on a NEW target or at
+                // most once per second. Re-pathing every step (policy picks
+                // ATTACK_START ~1.5x/step) kept resetting the approach so bots never
+                // arrived in melee; never re-pathing misses mobs that move between
+                // ticks. 1s cadence tracks movement while letting the path run.
+                uint32 now = getMSTime();
+                if (_moveTargetGuid != target->GetGUID() || now - _lastMovePathMs >= 1000)
                 {
                     _moveTargetGuid = target->GetGUID();
+                    _lastMovePathMs = now;
                     MotionMaster* mm = bot->GetMotionMaster();
                     mm->Clear();
                     mm->MovePoint(0, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(),
