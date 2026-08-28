@@ -115,6 +115,8 @@ private:
     float _cachedNearestEnemyDist = 0.0f;
     float _prevEnemyDist = 0.0f;
     float _prevPotential = 0.0f; // PBRS: Φ(s) of previous step (see ComputeReward)
+    bool _didAttackThisStep = false;
+    ObjectGuid _lastAttackRewardedGuid;
     ObjectGuid _prevTargetGuid;
     float _prevTargetHealth = 0.0f;
 

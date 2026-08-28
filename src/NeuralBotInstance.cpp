@@ -1081,15 +1081,17 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
 
     out.timePenalty = -0.001f;
 
-    // ── Potential-based reward shaping (PBRS, Ng et al. 1999) ──────────────
-    // F = γ·Φ(s') − Φ(s). Telescopes to a bounded term, so it cannot be gamed the
-    // way the v0.8.0 positional terms were (scores 1000+ via target-switching). A
-    // binary "has valid enemy target" potential is immune to switching (Φ stays 1),
-    // and the approach potential only rewards *distance decrease* (standing still or
-    // oscillating gives ~0). γ must match train_v3.py (gamma=0.999).
+    // ── Combat-bootstrap shaping ───────────────────────────────────────────
+    // Two correctly-credited terms. The earlier proximity potential was removed:
+    // the ATTACK_START approach is a *sticky* MovePoint, so distance-decrease reward
+    // was credited to whatever action the bot took during the move (usually NOOP),
+    // reinforcing NOOP instead of the initiating action.
+    //  1. Target potential (PBRS): +1.0 acquire / -1.0 lose a valid enemy target.
+    //     Credited to the action that caused the acquisition (target or attack).
+    //  2. Attack-engagement reward: +0.3 the first time each enemy is engaged via
+    //     ACTION_ATTACK_START. Credited directly to the attack action, bootstrapping
+    //     the one-action engage (auto-target + approach + swing).
     float potential = 0.0f;
-    if (_cachedNearestEnemyDist > 0.0f)
-        potential += 2.0f * std::max(0.0f, 1.0f - _cachedNearestEnemyDist / 40.0f);
     {
         Unit* sel = bot->GetSelectedUnit();
         if (sel && sel->ToCreature() && !sel->IsFriendlyTo(bot) && sel->IsAlive())
@@ -1097,6 +1099,19 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     }
     float shaping = 0.999f * potential - _prevPotential;
     _prevPotential = potential;
+
+    float attackEngagedReward = 0.0f;
+    if (_didAttackThisStep)
+    {
+        Unit* tgt = bot->GetSelectedUnit();
+        ObjectGuid g = tgt ? tgt->GetGUID() : ObjectGuid::Empty;
+        if (!g.IsEmpty() && g != _lastAttackRewardedGuid)
+        {
+            attackEngagedReward = 0.3f;
+            _lastAttackRewardedGuid = g;
+        }
+        _didAttackThisStep = false;
+    }
 
     // Dense reward (v0.8.1): the native milestones alone are too sparse (the
     // world-model reward head stayed at 0.0 for 20M steps), but the first dense
@@ -1107,7 +1122,7 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     return out.xpDelta + out.lootReward + levelReward + out.questAccepted + out.questCompleted + out.spellLearned
          + out.questProgress
          + out.damageDealt
-         - out.deathPenalty - out.damageTaken + out.timePenalty + shaping;
+         - out.deathPenalty - out.damageTaken + out.timePenalty + shaping + attackEngagedReward;
 }
 
 void NeuralBotInstance::ResetRewardTracking()
@@ -1136,6 +1151,8 @@ void NeuralBotInstance::ResetRewardTracking()
     _cachedNearestEnemyDist = 0.0f;
     _prevEnemyDist = 0.0f;
     _prevPotential = 0.0f;
+    _didAttackThisStep = false;
+    _lastAttackRewardedGuid.Clear();
     _prevTargetGuid = ObjectGuid::Empty;
     _questAutoCompleted = 0;
     _stepsWithoutReward = 0;
@@ -1392,6 +1409,7 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
                     FORCED_MOVEMENT_NONE, 0.0f, 0.0f, /*generatePath=*/true, /*forceDestination=*/false);
             }
             InjectCMSG(CMSG_ATTACKSWING, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
+            _didAttackThisStep = true; // reward the *initiating* action (see ComputeReward)
         }
         return;
     }
