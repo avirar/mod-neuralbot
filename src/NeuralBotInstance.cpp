@@ -1153,6 +1153,7 @@ void NeuralBotInstance::ResetRewardTracking()
     _prevPotential = 0.0f;
     _didAttackThisStep = false;
     _lastAttackRewardedGuid.Clear();
+    _moveTargetGuid.Clear();
     _prevTargetGuid = ObjectGuid::Empty;
     _questAutoCompleted = 0;
     _stepsWithoutReward = 0;
@@ -1403,10 +1404,17 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
             // stuck mass a single-action path into the loop. Remove with §3 cleanup.
             if (bot->GetDistance(target) > 4.5f && target->IsAlive())
             {
-                MotionMaster* mm = bot->GetMotionMaster();
-                mm->Clear();
-                mm->MovePoint(0, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(),
-                    FORCED_MOVEMENT_NONE, 0.0f, 0.0f, /*generatePath=*/true, /*forceDestination=*/false);
+                // Only (re)path when the target changed. Re-issuing Clear+MovePoint
+                // every step (the policy re-picks ATTACK_START ~1.5x/step) kept
+                // resetting the approach so bots never reached the mob to swing.
+                if (_moveTargetGuid != target->GetGUID())
+                {
+                    _moveTargetGuid = target->GetGUID();
+                    MotionMaster* mm = bot->GetMotionMaster();
+                    mm->Clear();
+                    mm->MovePoint(0, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(),
+                        FORCED_MOVEMENT_NONE, 0.0f, 0.0f, /*generatePath=*/true, /*forceDestination=*/false);
+                }
             }
             InjectCMSG(CMSG_ATTACKSWING, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
             _didAttackThisStep = true; // reward the *initiating* action (see ComputeReward)

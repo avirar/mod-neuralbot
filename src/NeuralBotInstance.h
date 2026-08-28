@@ -117,6 +117,7 @@ private:
     float _prevPotential = 0.0f; // PBRS: Φ(s) of previous step (see ComputeReward)
     bool _didAttackThisStep = false;
     ObjectGuid _lastAttackRewardedGuid;
+    ObjectGuid _moveTargetGuid;
     ObjectGuid _prevTargetGuid;
     float _prevTargetHealth = 0.0f;
 
