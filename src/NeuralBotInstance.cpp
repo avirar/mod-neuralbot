@@ -270,10 +270,28 @@ void NeuralBotInstance::RespawnToLevelBand()
         return;
 
     uint32 level = bot->GetLevel();
-    if (level < 5)
-        return; // still in the 1-4 starting-subzone band — leave it where it spawned
-
-    uint8 band = (level >= 10) ? 2 : 1;
+    uint8 band;
+    if (level >= 10)
+        band = 2;
+    else if (level >= 5)
+        band = 1;
+    else
+    {
+        // Level 1-4: only respawn when LOST. 87% of level-1 bots random-walk into
+        // empty areas (0 entities in obs) where they have no learning signal — this
+        // is the real kill/XP bottleneck. If a mob is still in sense range, leave the
+        // bot in place; otherwise teleport it back to the starting-subzone hub.
+        std::list<Unit*> units;
+        Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, NB_SENSE_RANGE);
+        Acore::UnitListSearcher<decltype(check)> searcher(bot, units, check);
+        Cell::VisitObjects(bot, searcher, NB_SENSE_RANGE);
+        bool nearMob = false;
+        for (Unit* u : units)
+            if (u && u->IsAlive() && !u->IsCritter()) { nearMob = true; break; }
+        if (nearMob)
+            return;
+        band = 0;
+    }
     uint8 team = (bot->GetTeamId() == TEAM_ALLIANCE) ? 0 : 1;
     HubList const& list = GetLevelBandHubs(team, band);
     if (list.count == 0)
