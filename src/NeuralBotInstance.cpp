@@ -279,17 +279,33 @@ void NeuralBotInstance::RespawnToLevelBand()
     {
         // Level 1-4: only respawn when LOST. 87% of level-1 bots random-walk into
         // empty areas (0 entities in obs) where they have no learning signal — this
-        // is the real kill/XP bottleneck. If a mob is still in sense range, leave the
-        // bot in place; otherwise teleport it back to the starting-subzone hub.
+        // is the real kill/XP bottleneck. Rescue them by teleporting ~12yd from the
+        // nearest hostile (wide search); if truly none, fall back to the graveyard.
+        float range = 300.0f;
         std::list<Unit*> units;
-        Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, NB_SENSE_RANGE);
+        Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, range);
         Acore::UnitListSearcher<decltype(check)> searcher(bot, units, check);
-        Cell::VisitObjects(bot, searcher, NB_SENSE_RANGE);
-        bool nearMob = false;
+        Cell::VisitObjects(bot, searcher, range);
+        Unit* nearest = nullptr;
+        float bestDist = range + 1.0f;
         for (Unit* u : units)
-            if (u && u->IsAlive() && !u->IsCritter()) { nearMob = true; break; }
-        if (nearMob)
+        {
+            if (!u || !u->IsAlive() || u->IsCritter())
+                continue;
+            float d = bot->GetDistance(u);
+            if (d < bestDist) { bestDist = d; nearest = u; }
+        }
+        if (nearest)
+        {
+            float a = frand(0.0f, 6.2831853f);
+            bot->GetMotionMaster()->Clear();
+            bot->TeleportTo(bot->GetMapId(),
+                nearest->GetPositionX() + std::cos(a) * 12.0f,
+                nearest->GetPositionY() + std::sin(a) * 12.0f,
+                nearest->GetPositionZ(), frand(0.0f, 6.2831853f));
+            LOG_DEBUG("module.neuralbot", "'{}' rescued near hostile ({}yd away)", GetName(), bestDist);
             return;
+        }
         band = 0;
     }
     uint8 team = (bot->GetTeamId() == TEAM_ALLIANCE) ? 0 : 1;
