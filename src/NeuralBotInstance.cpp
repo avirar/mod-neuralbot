@@ -303,9 +303,10 @@ void NeuralBotInstance::RespawnToLevelBand()
                 nearest->GetPositionX() + std::cos(a) * 12.0f,
                 nearest->GetPositionY() + std::sin(a) * 12.0f,
                 nearest->GetPositionZ(), frand(0.0f, 6.2831853f));
-            LOG_DEBUG("module.neuralbot", "'{}' rescued near hostile ({}yd away)", GetName(), bestDist);
+            LOG_DEBUG("module.neuralbot", "'{}' rescued near hostile '{}' ({}yd away, {} units scanned)", GetName(), nearest->GetName(), bestDist, units.size());
             return;
         }
+        LOG_DEBUG("module.neuralbot", "'{}' LOST: no hostile within {}yd ({} units scanned) — graveyard fallback", GetName(), range, units.size());
         band = 0;
     }
     uint8 team = (bot->GetTeamId() == TEAM_ALLIANCE) ? 0 : 1;

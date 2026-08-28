@@ -59,7 +59,8 @@ void NeuralBotMgr::Initialize()
 
     InitBcRecorder();
 
-    LOG_INFO("module.neuralbot", "NeuralBot manager initialized. Target: {} bots", _botCount);
+    LOG_INFO("module.neuralbot", "NeuralBot manager initialized. Target: {} bots, levelBand={}, curriculum={}, autoQuest={}, cleanup={}",
+        _botCount, _levelBandRespawn ? 1 : 0, _curriculumStaging ? 1 : 0, _autoQuest ? 1 : 0, _cleanupOnStartup ? 1 : 0);
 }
 
 void NeuralBotMgr::Shutdown()
