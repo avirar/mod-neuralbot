@@ -410,7 +410,7 @@ void NeuralBotInstance::BuildObservationInto(NeuralBotObservation& obs)
     std::vector<std::pair<Unit*, float>> nearbyUnits;
     if (bot->IsInWorld())
     {
-        float range = 60.0f;
+        float range = NB_SENSE_RANGE;
         std::list<Unit*> targets;
         Acore::AnyUnfriendlyUnitInObjectRangeCheck check(bot, bot, range);
         Acore::UnitListSearcher<decltype(check)> searcher(bot, targets, check);
@@ -653,7 +653,7 @@ void BuildFrameFor(Player* bot, NeuralBotFrame& frame, ObjectGuid* entityGuidsOu
     entities.reserve(NB_MAX_ENTITIES + 16);
     if (bot->IsInWorld())
     {
-        float range = 60.0f;
+        float range = NB_SENSE_RANGE;
 
         std::list<Unit*> units;
         AnyUnitInRangeCheck unitCheck(bot, range);
@@ -1270,7 +1270,7 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
         // mobile: nearest hostile, then nearest chest.
         Unit* target = bot->GetSelectedUnit();
         if (!target || !target->IsInWorld())
-            target = FindNearestMatchingUnit(bot, 60.0f, true, false);
+            target = FindNearestMatchingUnit(bot, NB_SENSE_RANGE, true, false);
         if (target)
         {
             MotionMaster* mm = bot->GetMotionMaster();
@@ -1342,19 +1342,19 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
 
     case ACTION_TARGET_NEAREST_ENEMY:
     {
-        if (Unit* nearest = FindNearestMatchingUnit(bot, 60.0f, true, false))
+        if (Unit* nearest = FindNearestMatchingUnit(bot, NB_SENSE_RANGE, true, false))
             InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
         break;
     }
     case ACTION_TARGET_NEAREST_FRIENDLY:
     {
-        if (Unit* nearest = FindNearestMatchingUnit(bot, 60.0f, false, false))
+        if (Unit* nearest = FindNearestMatchingUnit(bot, NB_SENSE_RANGE, false, false))
             InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
         break;
     }
     case ACTION_TARGET_NEAREST_CORPSE:
     {
-        if (Unit* nearest = FindNearestMatchingUnit(bot, 60.0f, true, true))
+        if (Unit* nearest = FindNearestMatchingUnit(bot, NB_SENSE_RANGE, true, true))
             InjectCMSG(CMSG_SET_SELECTION, [nearest](WorldPacket& pkt) { pkt << nearest->GetGUID(); });
         break;
     }
@@ -1375,7 +1375,7 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
     {
         Unit* target = bot->GetSelectedUnit();
         if (!target)
-            target = FindNearestMatchingUnit(bot, 60.0f, true, false); // interim auto-service (ROADMAP §3)
+            target = FindNearestMatchingUnit(bot, NB_SENSE_RANGE, true, false); // interim auto-service (ROADMAP §3)
         if (target)
         {
             InjectCMSG(CMSG_SET_SELECTION, [target](WorldPacket& pkt) { pkt << target->GetGUID(); });
@@ -1409,7 +1409,7 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
             return;
         Unit* target = bot->GetSelectedUnit();
         if (!target)
-            target = FindNearestMatchingUnit(bot, 60.0f, true, false); // §3: remove this auto-service later
+            target = FindNearestMatchingUnit(bot, NB_SENSE_RANGE, true, false); // §3: remove this auto-service later
         InjectCMSG(CMSG_CAST_SPELL, [spellId, target](WorldPacket& pkt) {
             pkt << uint8(0);
             pkt << spellId;

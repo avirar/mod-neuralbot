@@ -38,6 +38,12 @@ constexpr size_t ACTION_COUNT = 41;
 constexpr size_t MAX_ENTITY_TARGET_SLOTS = 18; // TARGET_ENTITY_0 .. _17
 constexpr size_t MAX_CAST_SLOTS = 8;           // CAST_SPELL_0 .. _7
 
+// Detection radius (yards) for the nearby-units/entities observation and the
+// target/attack auto-services. 60 yd left bots unable to see respawned mobs after
+// the initial spawn clusters were cleared (kills 0.13/ep -> 0.004/ep), so they
+// random-walked away from spawn points. 100 yd lets them sense the next cluster.
+constexpr float NB_SENSE_RANGE = 100.0f;
+
 enum NeuralBotAction : uint32
 {
     ACTION_NOOP = 0,
