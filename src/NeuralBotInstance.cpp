@@ -1104,11 +1104,17 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     if (_didAttackThisStep)
     {
         Unit* tgt = bot->GetSelectedUnit();
-        ObjectGuid g = tgt ? tgt->GetGUID() : ObjectGuid::Empty;
-        if (!g.IsEmpty() && g != _lastAttackRewardedGuid)
+        // Reward only a *close* first engagement. Rewarding every far-target attack
+        // taught the policy to hop between distant mobs (20 unique targets/ep, 0 kills)
+        // instead of closing to melee and dealing damage.
+        if (tgt && tgt->IsAlive() && !tgt->IsFriendlyTo(bot) && bot->GetDistance(tgt) < 8.0f)
         {
-            attackEngagedReward = 0.3f;
-            _lastAttackRewardedGuid = g;
+            ObjectGuid g = tgt->GetGUID();
+            if (g != _lastAttackRewardedGuid)
+            {
+                attackEngagedReward = 0.3f;
+                _lastAttackRewardedGuid = g;
+            }
         }
         _didAttackThisStep = false;
     }
