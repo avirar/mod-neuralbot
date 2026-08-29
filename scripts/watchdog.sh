@@ -20,9 +20,9 @@ log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 # name|conf-arg|shm|prefix|chardb|model|decay_frac
 INSTANCES=(
-    "1||/neuralbot_shm|nbot|acore_characters|wow_neuralbot_model_v15_dense|0.15"
-    "2|../etc/instance2/worldserver.conf|/neuralbot_shm2|xbot|acore_characters2|wow_neuralbot_model_i2|0.25"
-    "3|../etc/instance3/worldserver.conf|/neuralbot_shm3|ybot|acore_characters3|wow_neuralbot_model_i3|0.05"
+    "1||/neuralbot_shm|nbot|acore_characters|wow_neuralbot_model_v15_dense|0.5"
+    "2|../etc/instance2/worldserver.conf|/neuralbot_shm2|xbot|acore_characters2|wow_neuralbot_model_i2|0.5"
+    "3|../etc/instance3/worldserver.conf|/neuralbot_shm3|ybot|acore_characters3|wow_neuralbot_model_i3|0.5"
 )
 
 online_bots() { # $1=prefix $2=chardb
@@ -69,7 +69,7 @@ start_trainer() { # $1=model $2=shm-path $3=decay_frac $4=chardb
     # Hyperparameters track the active experiments (KL guard off: see train_v3.py).
     NEURALBOT_MODEL="$1" NEURALBOT_TIMESTEPS=1000000000 \
         NEURALBOT_LR="${NEURALBOT_LR:-1.5e-4}" NEURALBOT_ENT="${NEURALBOT_ENT:-0.01}" \
-        NEURALBOT_ENT_FINAL="${NEURALBOT_ENT_FINAL:-0.0005}" NEURALBOT_ENT_DECAY_FRAC="$3" \
+        NEURALBOT_ENT_FINAL="${NEURALBOT_ENT_FINAL:-0.003}" NEURALBOT_ENT_DECAY_FRAC="$3" \
         NEURALBOT_KL="${NEURALBOT_KL:-0}" NEURALBOT_NUM_BOTS="${NEURALBOT_NUM_BOTS:-800}" \
         NEURALBOT_REWARD_MODE="${NEURALBOT_REWARD_MODE:-symlog}" \
         NEURALBOT_BATCH_SIZE=4096 NEURALBOT_EPOCHS=5 NEURALBOT_NSTEPS=1024 \
