@@ -63,6 +63,7 @@ NeuralBotInstance::NeuralBotInstance(Player* player, WorldSession* session)
     if (_ready)
     {
         AutoPopulateSpellSlots();
+        EquipTierWeapon();
         ResetRewardTracking();
         LOG_INFO("module.neuralbot", "Instance created for '{}' GUID: {}", GetName(), _player->GetGUID().GetCounter());
     }
@@ -71,6 +72,78 @@ NeuralBotInstance::NeuralBotInstance(Player* player, WorldSession* session)
 std::string NeuralBotInstance::GetName() const
 {
     return _player ? _player->GetName() : "?";
+}
+
+// Level-tier white weapons (item_template, RequiredSkill=0, all-race/class usable).
+// Melee sustain was the progression blocker: starter weapons (~1.1-1.5 DPS) need
+// 40+ swings per level-1 mob (~40-60 s/kill) — longer than most episodes, so the
+// level-1 cohort almost never completes kills. Tiers roughly double/triple DPS.
+// [tier][0] = mace line (warrior/paladin/shaman/druid/priest/rogue),
+// [tier][1] = dagger line (mage/warlock/hunter — no mace proficiency).
+namespace {
+uint32 const TierWeaponEntry[4][2] =
+{
+    { 20851, 4565 }, // lvl 1+:  Arcane Forged Mace (1.6) / Simple Dagger (2.5)
+    { 1913,  1917 }, // lvl 5+:  Studded Blackjack (4.2) / Jeweled Dagger (5.3)
+    { 4569,  2632 }, // lvl 9+:  Staunch Hammer (7.3) / Curved Dagger (7.2)
+    { 2821,  2020 }, // lvl 13+: Mo'grosh Masher (9.2) / Hollowfang Blade (8.9)
+};
+
+uint8 WeaponTierForLevel(uint32 level)
+{
+    if (level >= 13) return 3;
+    if (level >= 9)  return 2;
+    if (level >= 5)  return 1;
+    return 0;
+}
+
+bool MaceProficient(uint8 cls)
+{
+    switch (cls)
+    {
+        case CLASS_WARRIOR: case CLASS_PALADIN: case CLASS_SHAMAN:
+        case CLASS_DRUID: case CLASS_PRIEST: case CLASS_ROGUE:
+            return true;
+        default: // mage / warlock / hunter
+            return false;
+    }
+}
+} // namespace
+
+void NeuralBotInstance::EquipTierWeapon()
+{
+    if (!_player || !_player->IsInWorld())
+        return;
+
+    uint8 tier = WeaponTierForLevel(_player->GetLevel());
+    if (tier == _lastWeaponTier)
+        return;
+
+    uint32 entry = TierWeaponEntry[tier][MaceProficient(_player->getClass()) ? 0 : 1];
+    ItemTemplate const* proto = sObjectMgr->GetItemTemplate(entry);
+    if (!proto)
+        return;
+
+    // Only upgrade: skip if the current main-hand weapon is already this tier's entry
+    // or higher ItemLevel (a looted/quest weapon may beat the tier white).
+    if (Item* current = _player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND))
+    {
+        if (current->GetEntry() == entry || current->GetTemplate()->ItemLevel >= proto->ItemLevel)
+        {
+            _lastWeaponTier = tier;
+            return;
+        }
+        // Stash the old weapon in bags (drop if full), then equip the tier weapon.
+        ItemPosCountVec dest;
+        if (_player->CanStoreItem(NULL_BAG, NULL_SLOT, dest, current, false) == EQUIP_ERR_OK)
+            _player->SwapItem(uint16((INVENTORY_SLOT_BAG_0) | (EQUIPMENT_SLOT_MAINHAND << 8)), dest[0].pos);
+        else
+            _player->DestroyItem(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND, true);
+    }
+
+    _player->EquipNewItem(EQUIPMENT_SLOT_MAINHAND, entry, true);
+    _lastWeaponTier = tier;
+    LOG_DEBUG("module.neuralbot", "'{}' equipped tier-{} weapon {}", GetName(), tier, entry);
 }
 
 void NeuralBotInstance::SetSpellSlot(size_t index, uint32 spellId)
@@ -1177,6 +1250,7 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
 void NeuralBotInstance::ResetRewardTracking()
 {
     if (!_player) return;
+    EquipTierWeapon(); // level-ups happen mid-episode; refresh at each episode boundary
     _prevXp = static_cast<float>(_player->GetUInt32Value(PLAYER_XP));
     _prevNextLevelXp = static_cast<float>(_player->GetUInt32Value(PLAYER_NEXT_LEVEL_XP));
     _prevLevel = _player->GetLevel();

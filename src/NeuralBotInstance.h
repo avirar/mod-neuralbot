@@ -41,6 +41,7 @@ public:
     uint32 GetSpellSlot(size_t index) const;
     void GetSpellbook(std::vector<uint32>& spells) const;
     void AutoPopulateSpellSlots();
+    void EquipTierWeapon();
     void SetSpellSlots(std::vector<uint32> const& spells);
 
     void OnPlayerJustDied();
@@ -117,6 +118,7 @@ private:
     float _prevEnemyDist = 0.0f;
     float _prevPotential = 0.0f; // PBRS: Φ(s) of previous step (see ComputeReward)
     bool _didAttackThisStep = false;
+    uint8 _lastWeaponTier = 255; // 255 = never equipped (see EquipTierWeapon)
     std::unordered_set<uint64> _engagedGuids; // per-episode GUIDs already paid engagement reward
     ObjectGuid _moveTargetGuid;
     uint32 _lastMovePathMs = 0;
