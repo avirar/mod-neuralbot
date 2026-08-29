@@ -13,8 +13,10 @@ REPO=/home/luke/GIT/azerothcore-wotlk
 BIN="$REPO/env/dist/bin"
 
 cd "$BIN"
+# stdin MUST stay open: worldserver's console reader spin-loops on EOF
+# ("AC>" flood, ~2 cores wasted). `tail -f /dev/null |` holds it open forever.
 AC_NEURAL_BOT_SHM_NAME="/neuralbot_shm2" \
 AC_NEURAL_BOT_BOT_CHARACTER_NAME="Xbot" \
 AC_NEURAL_BOT_BOT_ACCOUNT_PREFIX="xbot" \
-nohup ./worldserver -c ../etc/instance2/worldserver.conf > ws2.out 2>&1 &
+setsid nohup bash -c 'exec tail -f /dev/null | ./worldserver -c ../etc/instance2/worldserver.conf' > ws2.out 2>&1 &
 echo "instance2 worldserver pid $!"

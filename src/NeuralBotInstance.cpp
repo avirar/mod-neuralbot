@@ -226,11 +226,15 @@ struct HubList
 HubList const& GetLevelBandHubs(uint8 team, uint8 band)
 {
     static HubList const ALLIANCE[3] = {
-        // band 0: 1-4
-        { 4, { { 0,   -8935.0f,  -189.0f,   80.0f },   // Elwynn, Northshire
-                { 0,   -6164.0f,   336.0f,  400.0f },   // Dun Morogh, Anvilmar (Coldridge)
-                { 1,   10385.0f,   812.0f, 1318.0f },   // Teldrassil, Aldrassil (Shadowglen)
-                { 530, -4123.0f, -13660.0f,  75.0f } } }, // Azuremyst, Ammen Vale
+        // band 0: 1-4 — mob-cluster centroids (computed from factiontemplate_dbc:
+        // (FriendGroup & 7)==0 and (FactionGroup & 8)!=0, minlevel 1-5), NOT graveyards.
+        // Graveyards sit ~100-200yd from hostile spawns (nearest are critters/friendly
+        // NPCs), so lost bots respawned there still saw no mobs. These land them in the
+        // middle of the level-1-4 killable population.
+        { 4, { { 0,   -8830.0f,  -111.0f,   83.0f },   // Elwynn, Northshire (kobolds)
+                { 0,   -5977.0f,    99.0f,  395.0f },   // Dun Morogh, Coldridge (troggs)
+                { 1,    9914.0f,   857.0f, 1309.0f },   // Teldrassil, Shadowglen
+                { 530, -3794.0f, -13328.0f,  72.0f } } }, // Azuremyst, Ammen Vale
         // band 1: 5-9
         { 4, { { 0,   -9339.0f,   171.0f,   62.0f },   // Elwynn, Goldshire
                 { 0,   -5680.0f,  -519.0f,  396.0f },   // Dun Morogh, Kharanos
@@ -243,11 +247,11 @@ HubList const& GetLevelBandHubs(uint8 team, uint8 band)
                 { 530, -2021.0f, -11984.0f,  33.0f } } }, // Bloodmyst, Blood Watch
     };
     static HubList const HORDE[3] = {
-        // band 0: 1-4
-        { 4, { { 1,   -635.0f,  -4296.0f,  41.0f },   // Durotar, Valley of Trials
-                { 0,   1883.0f,   1629.0f,  94.0f },   // Tirisfal, Deathknell
-                { 1,  -2945.0f,   -153.0f,  66.0f },   // Mulgore, Red Cloud Mesa (Narache)
-                { 530, 10458.0f, -6365.0f,  40.0f } } }, // Eversong, Sunstrider Isle
+        // band 0: 1-4 — mob-cluster centroids (see ALLIANCE comment).
+        { 4, { { 1,   -653.0f,  -4656.0f,  39.0f },   // Durotar, Valley of Trials
+                { 0,   2302.0f,   1329.0f,  35.0f },   // Tirisfal, Deathknell
+                { 1,  -2635.0f,    -90.0f,  27.0f },   // Mulgore, Red Cloud Mesa (Narache)
+                { 530, 9840.0f,  -6707.0f,  11.0f } } }, // Eversong, Sunstrider Isle
         // band 1: 5-9
         { 4, { { 1,    233.0f,  -4794.0f,  10.0f },   // Durotar, Razor Hill
                 { 0,   2349.0f,    492.0f,  33.0f },   // Tirisfal, Brill

@@ -12,6 +12,7 @@ Protocol (shm v2): Python writes `num_bots` uint8 actions to the region, sets
 """
 import mmap
 import os
+import os
 import struct
 import time
 
@@ -22,8 +23,11 @@ from neuralbot_client import (
     NB_MAX_SPELLS, NB_MAX_QUESTS, NB_MAX_ENTITIES, NB_MAX_ITEMS,
 )
 
-SHM_NAME = "/neuralbot_shm"
-SHM_PATH = "/dev/shm/neuralbot_shm"
+# Per-instance override: export SHM_PATH=/dev/shm/neuralbot_shm2 (trainers for
+# instances 2/3 were silently connecting to instance 1's shm because this was a
+# hardcoded constant — three trainers stepping one worldserver's bots).
+SHM_PATH = os.environ.get("SHM_PATH", "/dev/shm/neuralbot_shm")
+SHM_NAME = os.environ.get("SHM_NAME", SHM_PATH.replace("/dev/shm", ""))
 
 # Must match NeuralBotSharedMem.h
 SHM_MAGIC = 0x4E425348
