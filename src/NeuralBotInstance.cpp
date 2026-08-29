@@ -124,11 +124,13 @@ void NeuralBotInstance::EquipTierWeapon()
     if (!proto)
         return;
 
-    // Only upgrade: skip if the current main-hand weapon is already this tier's entry
-    // or higher ItemLevel (a looted/quest weapon may beat the tier white).
+    // Only upgrade: skip if the current main-hand slot already holds a real WEAPON of
+    // equal-or-better tier. (Character-creation junk — armor pieces — can sit in the
+    // slot with high ItemLevel; that must not block the equip.)
     if (Item* current = _player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND))
     {
-        if (current->GetEntry() == entry || current->GetTemplate()->ItemLevel >= proto->ItemLevel)
+        ItemTemplate const* cur = current->GetTemplate();
+        if (cur->Class == ITEM_CLASS_WEAPON && cur->ItemLevel >= proto->ItemLevel)
         {
             _lastWeaponTier = tier;
             return;
