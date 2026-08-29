@@ -110,10 +110,32 @@ bool MaceProficient(uint8 cls)
 }
 } // namespace
 
+// Grant every basic melee weapon skill (races start with different subsets — an Orc
+// warrior can't equip maces, a Human can't equip axes at level 1 — which silently
+// failed EquipNewItem for most race/class combos). Bots are synthetic; let them use
+// the tier weapon line regardless of racial starter skills.
+namespace {
+void GrantWeaponSkills(Player* bot)
+{
+    struct SkillGrant { uint16 skill; char const* name; };
+    static SkillGrant const grants[] = {
+        { SKILL_SWORDS,   "swords"   },
+        { SKILL_AXES,     "axes"     },
+        { SKILL_MACES,    "maces"    },
+        { SKILL_DAGGERS,  "daggers"  },
+    };
+    uint16 max = bot->GetMaxSkillValueForLevel();
+    for (SkillGrant const& g : grants)
+        if (!bot->HasSkill(g.skill))
+            bot->SetSkill(g.skill, 0, max, max);
+}
+} // namespace
+
 void NeuralBotInstance::EquipTierWeapon()
 {
     if (!_player || !_player->IsInWorld())
         return;
+    GrantWeaponSkills(_player);
 
     uint8 tier = WeaponTierForLevel(_player->GetLevel());
     if (tier == _lastWeaponTier)
@@ -126,8 +148,9 @@ void NeuralBotInstance::EquipTierWeapon()
 
     // Only upgrade: skip if the current main-hand slot already holds a real WEAPON of
     // equal-or-better tier. (Character-creation junk — armor pieces — can sit in the
-    // slot with high ItemLevel; that must not block the equip.)
-    if (Item* current = _player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND))
+    // slot; it is destroyed rather than bag-stored: swap-to-bag failed in practice.)
+    Item* current = _player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+    if (current)
     {
         ItemTemplate const* cur = current->GetTemplate();
         if (cur->Class == ITEM_CLASS_WEAPON && cur->ItemLevel >= proto->ItemLevel)
@@ -135,15 +158,13 @@ void NeuralBotInstance::EquipTierWeapon()
             _lastWeaponTier = tier;
             return;
         }
-        // Stash the old weapon in bags (drop if full), then equip the tier weapon.
-        ItemPosCountVec dest;
-        if (_player->CanStoreItem(NULL_BAG, NULL_SLOT, dest, current, false) == EQUIP_ERR_OK)
-            _player->SwapItem(uint16((INVENTORY_SLOT_BAG_0) | (EQUIPMENT_SLOT_MAINHAND << 8)), dest[0].pos);
-        else
-            _player->DestroyItem(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND, true);
+        _player->DestroyItem(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND, true);
     }
 
-    _player->EquipNewItem(EQUIPMENT_SLOT_MAINHAND, entry, true);
+    bool ok = _player->EquipNewItem(EQUIPMENT_SLOT_MAINHAND, entry, true);
+    LOG_INFO("module.neuralbot", "{}: tier-{} weapon {} equip {} (had {})",
+        GetName(), tier, entry, ok ? "ok" : "FAIL",
+        current ? current->GetEntry() : 0);
     _lastWeaponTier = tier;
     LOG_DEBUG("module.neuralbot", "'{}' equipped tier-{} weapon {}", GetName(), tier, entry);
 }
