@@ -1153,7 +1153,7 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
         {
             uint64 g = tgt->GetGUID().GetRawValue();
             if (_engagedGuids.insert(g).second) // once per enemy per episode (set, not
-                attackEngagedReward = 0.3f;      // last-GUID: A→B→A oscillation farmed 0.3 each switch)
+                attackEngagedReward = 0.1f;      // last-GUID: A→B→A oscillation farmed 0.3 each switch). 0.1: bootstrap only — kills (5.0) must dominate
         }
         _didAttackThisStep = false;
     }
@@ -1164,8 +1164,12 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
     // target-switching). Keep ONLY non-gameable dense terms: a constant time penalty
     // (every step non-zero), damage dealt (dense positive, requires engaging the
     // enemy), and damage taken (dense negative, teaches efficient combat).
+    // killReward (5.0/kill) is IN the total: without it, engagement (0.3 x ~7 mobs)
+    // outpaid killing (~0.5 xp-equivalent) — the policy optimized mob-hopping over
+    // completion (live measurement: 0.2 kills/ep, 19% of mobs chipped, 5% below half).
     return out.xpDelta + out.lootReward + levelReward + out.questAccepted + out.questCompleted + out.spellLearned
          + out.questProgress
+         + out.killReward
          + out.damageDealt
          - out.deathPenalty - out.damageTaken + out.timePenalty + shaping + attackEngagedReward;
 }
