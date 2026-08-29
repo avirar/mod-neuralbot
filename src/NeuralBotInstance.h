@@ -2,6 +2,7 @@
 #define NEURALBOTINSTANCE_H
 
 #include "NeuralBotCommon.h"
+#include <unordered_set>
 #include "NeuralBotFrame.h"
 #include "Player.h"
 #include "WorldSession.h"
@@ -116,7 +117,7 @@ private:
     float _prevEnemyDist = 0.0f;
     float _prevPotential = 0.0f; // PBRS: Φ(s) of previous step (see ComputeReward)
     bool _didAttackThisStep = false;
-    ObjectGuid _lastAttackRewardedGuid;
+    std::unordered_set<uint64> _engagedGuids; // per-episode GUIDs already paid engagement reward
     ObjectGuid _moveTargetGuid;
     uint32 _lastMovePathMs = 0;
     ObjectGuid _prevTargetGuid;

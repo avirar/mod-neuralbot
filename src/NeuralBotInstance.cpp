@@ -1151,12 +1151,9 @@ float NeuralBotInstance::ComputeReward(NeuralBotReward& out)
         // instead of closing to melee and dealing damage.
         if (tgt && tgt->IsAlive() && !tgt->IsFriendlyTo(bot) && bot->GetDistance(tgt) < 8.0f)
         {
-            ObjectGuid g = tgt->GetGUID();
-            if (g != _lastAttackRewardedGuid)
-            {
-                attackEngagedReward = 0.3f;
-                _lastAttackRewardedGuid = g;
-            }
+            uint64 g = tgt->GetGUID().GetRawValue();
+            if (_engagedGuids.insert(g).second) // once per enemy per episode (set, not
+                attackEngagedReward = 0.3f;      // last-GUID: A→B→A oscillation farmed 0.3 each switch)
         }
         _didAttackThisStep = false;
     }
@@ -1200,7 +1197,7 @@ void NeuralBotInstance::ResetRewardTracking()
     _prevEnemyDist = 0.0f;
     _prevPotential = 0.0f;
     _didAttackThisStep = false;
-    _lastAttackRewardedGuid.Clear();
+    _engagedGuids.clear();
     _moveTargetGuid.Clear();
     _lastMovePathMs = 0;
     _prevTargetGuid = ObjectGuid::Empty;
@@ -1441,7 +1438,11 @@ void NeuralBotInstance::ExecuteAction(uint32 action)
     if (action == ACTION_ATTACK_START)
     {
         Unit* target = bot->GetSelectedUnit();
-        if (!target)
+        // Validate the selection: ATTACKSWING on a friendly/dead unit is rejected
+        // server-side SILENTLY — the bot then parks at 0 yd "attacking" it forever
+        // (observed live: 63% of bots locked on friendly targets, 5% combat, 0 kills
+        // while spamming ATTACK_START ~700x/episode). Retarget to a real hostile.
+        if (!target || !target->IsAlive() || target->IsFriendlyTo(bot))
             target = FindNearestMatchingUnit(bot, NB_SENSE_RANGE, true, false); // interim auto-service (ROADMAP §3)
         if (target)
         {
