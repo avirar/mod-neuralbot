@@ -1275,6 +1275,11 @@ namespace
         {
             if (!u || u == bot)
                 continue;
+            // Players are never valid combat targets: unflagged enemy players silently
+            // reject ATTACKSWING, which re-created the friendly-lock (bots parked next
+            // to opposite-faction bots, 0 kills, once zone mobs were depleted).
+            if (hostiles && u->IsPlayer())
+                continue;
             if (u->IsAlive() == wantDead)
                 continue;
             if (!hostiles && !u->IsAlive()) // friendly scan: alive only
