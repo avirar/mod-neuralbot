@@ -220,9 +220,12 @@ struct HubList
     LevelBandHub hubs[4];
 };
 
-// Level-band respawn hubs (graveyard coordinates from game_graveyard — guaranteed safe,
-// central). Bands: 0 = 1-4 (starting subzone), 1 = 5-9 (main hub), 2 = 10-19
-// (next-zone hub). Level 20+ clamps to band 2 for now (bots are ~11 max).
+// Level-band respawn hubs — mob-cluster centroids (NOT towns/graveyards: those sit
+// 100-300yd from hostile fields, beyond the 100yd sense range, stranding bots).
+// Computed from creature x factiontemplate_dbc where (FriendGroup & 7)==0 (not friendly
+// to any player group) and (FactionGroup & 8)!=0 (monster), averaged over the zone's
+// level-appropriate spawns. Bands: 0 = 1-4, 1 = 5-9, 2 = 10-19. Level 20+ clamps to
+// band 2 for now.
 HubList const& GetLevelBandHubs(uint8 team, uint8 band)
 {
     static HubList const ALLIANCE[3] = {
@@ -235,16 +238,16 @@ HubList const& GetLevelBandHubs(uint8 team, uint8 band)
                 { 0,   -5977.0f,    99.0f,  395.0f },   // Dun Morogh, Coldridge (troggs)
                 { 1,    9914.0f,   857.0f, 1309.0f },   // Teldrassil, Shadowglen
                 { 530, -3794.0f, -13328.0f,  72.0f } } }, // Azuremyst, Ammen Vale
-        // band 1: 5-9
-        { 4, { { 0,   -9339.0f,   171.0f,   62.0f },   // Elwynn, Goldshire
-                { 0,   -5680.0f,  -519.0f,  396.0f },   // Dun Morogh, Kharanos
-                { 1,    9701.0f,   946.0f, 1291.0f },   // Teldrassil, Dolanaar
-                { 530, -4313.0f, -12441.0f,  17.0f } } }, // Azuremyst, Azure Watch
-        // band 2: 10-19
-        { 4, { { 0,   -10547.0f,  1197.0f,   32.0f },  // Westfall, Sentinel Hill
-                { 0,   -5351.0f,  -2882.0f,  341.0f },  // Loch Modan, Thelsamar
-                { 1,    6739.0f,   210.0f,   23.0f },  // Darkshore, Auberdine
-                { 530, -2021.0f, -11984.0f,  33.0f } } }, // Bloodmyst, Blood Watch
+        // band 1: 5-9 — mob-cluster centroids (same faction filter, minlevel 5-9)
+        { 4, { { 0,   -9569.0f,     92.0f,   51.0f },   // Elwynn (defias/murlocs)
+                { 0,   -5435.0f,   -180.0f,  391.0f },   // Dun Morogh (leopards/trolls)
+                { 1,    9792.0f,   1259.0f, 1304.0f },   // Teldrassil (owlbeasts/spiders)
+                { 530, -4201.0f, -12071.0f,    9.0f } } }, // Azuremyst (stags/moonstalkers)
+        // band 2: 10-19 — mob-cluster centroids (minlevel 10-15)
+        { 4, { { 0,  -10343.0f,   1538.0f,   32.0f },   // Westfall (defias harvest)
+                { 0,   -5373.0f,  -3025.0f,  341.0f },   // Loch Modan (troggs/spiders)
+                { 1,    6684.0f,     88.0f,   20.0f },   // Darkshore (crawlers/furbolgs)
+                { 530, -2048.0f, -11827.0f,   19.0f } } }, // Bloodmyst (ravagers/treants)
     };
     static HubList const HORDE[3] = {
         // band 0: 1-4 — mob-cluster centroids (see ALLIANCE comment).
@@ -252,15 +255,15 @@ HubList const& GetLevelBandHubs(uint8 team, uint8 band)
                 { 0,   2302.0f,   1329.0f,  35.0f },   // Tirisfal, Deathknell
                 { 1,  -2635.0f,    -90.0f,  27.0f },   // Mulgore, Red Cloud Mesa (Narache)
                 { 530, 9840.0f,  -6707.0f,  11.0f } } }, // Eversong, Sunstrider Isle
-        // band 1: 5-9
-        { 4, { { 1,    233.0f,  -4794.0f,  10.0f },   // Durotar, Razor Hill
-                { 0,   2349.0f,    492.0f,  33.0f },   // Tirisfal, Brill
-                { 1,  -2175.0f,   -342.0f,  -6.0f },   // Mulgore, Bloodhoof Village
-                { 530, 8709.0f,  -6672.0f,  70.0f } } }, // Eversong, Fairbreeze (Falconwing)
-        // band 2: 10-19
-        { 3, { { 1,   -593.0f,  -2523.0f,  92.0f },   // Barrens, Crossroads
-                { 0,    516.0f,   1590.0f, 128.0f },   // Silverpine, Sepulcher
-                { 530, 7694.0f,  -6730.0f,  48.0f },   // Ghostlands, Tranquillien
+        // band 1: 5-9 — mob-cluster centroids (see ALLIANCE comment)
+        { 4, { { 1,     420.0f,  -4461.0f,   25.0f },   // Durotar (scorpids/quillboar)
+                { 0,    2480.0f,    557.0f,   46.0f },   // Tirisfal (scarlet/darkhounds)
+                { 1,   -1909.0f,   -505.0f,   27.0f },   // Mulgore (plainstriders/wolves)
+                { 530,  8740.0f,  -6555.0f,   46.0f } } }, // Eversong (wyrms/wraiths)
+        // band 2: 10-19 — mob-cluster centroids (minlevel 10-15)
+        { 3, { { 1,    -441.0f,  -2448.0f,   99.0f },   // Barrens (razormanes/striders)
+                { 0,     889.0f,   1321.0f,   49.0f },   // Silverpine (worgen/wraiths)
+                { 530,  7477.0f,  -6313.0f,   27.0f },   // Ghostlands (bats/ghostcallers)
                 { 0,      0.0f,      0.0f,   0.0f } } }, // unused
     };
     return (team == 0) ? ALLIANCE[band] : HORDE[band];

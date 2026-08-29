@@ -6,6 +6,28 @@ to [Semantic Versioning](https://semver.org/) — currently pre-release (`0.x`).
 
 ## [Unreleased]
 
+### Fixed
+- **CRITICAL: per-instance SHM binding.** `neuralbot_shm.py` hardcoded
+  `SHM_PATH = "/dev/shm/neuralbot_shm"` (the `SHM_PATH` env var was only read for a
+  print statement). Since multi-instance launch, i2/i3 trainers mapped **instance 1's
+  shm**: three trainers interleaved on one worldserver's bots while i2/i3 worldservers
+  spun unpaired (~2 cores each on the console EOF loop). Consequences: the entire
+  0.05/0.15/0.25 decay sweep was invalid (all "arms" trained on the same interleaved
+  swarm), and i2/i3 bot rosters never trained at all. Fixed by reading the env var at
+  import; verified each trainer now holds its own `/dev/shm/neuralbot_shm{,2,3}` fd.
+- **Band-1 (5-9) and band-2 (10-19) respawn hubs moved to mob-cluster centroids**
+  (same `factiontemplate_dbc` filter as band 0: `(FriendGroup & 7)==0` and
+  `(FactionGroup & 8)!=0`, minlevel 5-9 / 10-15). All hubs were previously
+  towns/graveyards 100-300 yd from hostile fields — beyond the 100 yd sense range —
+  so every level band re-stranded bots after the first respawn.
+- **First kills + XP + level-ups ever observed** after the above fixes (i2/i3 at
+  ~0.5 kills/ep, first bots reached level 2 within 30 min of correct pairing).
+- i2/i3 launchers (`launch_instance2.sh`, new `launch_instance3.sh`) now hold stdin
+  open (`tail -f /dev/null |`) — worldserver's console reader spin-loops on EOF
+  ("AC>" flood, ~2 cores wasted per instance).
+- i1's poisoned checkpoints archived to NAS (trained on the interleaved swarm);
+  i1 restarted fresh. Stale `demos.bin` (7.6 GB) also moved to NAS.
+
 ### Changed
 - **Phase-0 entropy-schedule verdict CONFIRMED.** The 3-arm A/B (fast decay `i3` vs slow
   `i2` vs long-lineage `v15_dense`) showed the constant entropy bonus was pinning the
